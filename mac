@@ -1,0 +1,290 @@
+#!/bin/bash
+# This sets up the initial set of tools and applications I usually install on a new MacOS system
+
+
+
+# Installation commands
+INSTALL_HOMEBREW="/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+INSTALL_GIT="brew install git"
+INSTALL_ITERM2="brew install --cask iterm2"
+INSTALL_PYTHON="brew install python"
+INSTALL_PIPX="brew install pipx"
+INSTALL_VSCODE="brew install --cask visual-studio-code"
+INSTALL_XCODE="xcode-select --install"
+ACCEPT_XCODE_LICENSE="sudo xcodebuild -license accept"
+INSTALL_DOCKER="brew install --cask docker"
+INSTALL_OH_MY_ZSH="sh -c \"$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
+
+# TODO: Do we want to pin specific software versions?
+
+# Function that prints a green checkmark 
+print_check() {
+    echo -e "\033[0;32m\xE2\x9C\x94 $1\033[0m"
+}
+
+# Function that prints a red X
+print_error() {
+    echo -e "\033[0;31m\xE2\x9D\x8C $1\033[0m"
+}
+
+# Function to process optional parameters and handle --help flag
+process_parameters() {
+    local run_all=false
+    local run_homebrew=false
+    local run_git=false
+    local run_iterm2=false
+    local run_python=false
+    local run_pipx=false
+    local run_vscode=false
+    local run_xcode=false
+    local run_docker=false
+    local run_oh_my_zsh=false
+
+    while [[ "$#" -gt 0 ]]; do
+        case $1 in
+            --help)
+                echo "Usage: $0 [options]"
+                echo "Options:"
+                echo "  --help                     Show this help message"
+                echo "  --all                      Run all setup functions"
+                echo "  --homebrew                 Install or update Homebrew"
+                echo "  --git                      Install or update Git"
+                echo "  --iterm2                   Install or update iTerm2"
+                echo "  --python                   Install or update Python"
+                echo "  --pipx                     Install or update pipx"
+                echo "  --vscode                   Install or update Visual Studio Code"
+                echo "  --xcode                    Install or update Xcode Command Line Tools"
+                echo "  --docker                   Install or update Docker"
+                echo "  --oh-my-zsh                Install or update Oh My Zsh"
+                exit 0
+                ;;
+            --all)
+                run_all=true
+                ;;
+            --homebrew)
+                run_homebrew=true
+                ;;
+            --git)
+                run_git=true
+                ;;
+            --iterm2)
+                run_iterm2=true
+                ;;
+            --python)
+                run_python=true
+                ;;
+            --pipx)
+                run_pipx=true
+                ;;
+            --vscode)
+                run_vscode=true
+                ;;
+            --xcode)
+                run_xcode=true
+                ;;
+            --docker)
+                run_docker=true
+                ;;
+            --oh-my-zsh)
+                run_oh_my_zsh=true
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Use --help to see the valid options."
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    if [ "$run_all" = true ]; then
+        run_homebrew=true
+        run_git=true
+        run_iterm2=true
+        run_python=true
+        run_pipx=true
+        run_vscode=true
+        run_xcode=true
+        run_docker=true
+        run_oh_my_zsh=true
+    fi
+
+    # Update this section if we add more pieces of software to install/update
+    # Call the function to set or update the DEV_DIRECTORY environment variable
+    $run_homebrew && check_homebrew
+    $run_oh_my_zsh && check_oh_my_zsh
+    $run_git && check_git
+    $run_iterm2 && check_iterm2
+    $run_python && check_python
+    $run_pipx && check_pipx
+    $run_vscode && check_vscode
+    $run_xcode && check_xcode
+    $run_docker && check_docker
+}
+
+# Generic function to set or replace an environment variable in .zshrc
+set_env_var_in_zshrc() {
+    local zshrc_file_path=$1 
+    local env_var=$2
+    local env_value=$3
+
+    # Check if the .zshrc file exists, if not, create it, otherwise make a backup copy
+    if [[ ! -f "$zshrc_file_path" ]]; then
+        echo "Creating an empty .zshrc file..."
+        touch "$zshrc_file_path"
+    else
+        cp "$zshrc_file_path" "$zshrc_file_path.bak"
+        echo "Backed up .zshrc to .zshrc.bak"
+    fi
+
+    # check if the env variable already exists - if it does then just replace it
+    if (grep -q "^export $env_var=" "$zshrc_file_path"); then
+        sed -i '' "s|^export $env_var=.*|export $env_var=$env_value|" "$zshrc_file_path"
+        echo "Updated $env_var in .zshrc to $env_value"
+    else
+        echo "export $env_var=$env_value" >> "$zshrc_file_path"
+        echo "Added $env_var to .zshrc with value $env_value"
+    fi
+    
+    # source the .zshrc file
+    source "$zshrc_file_path"
+}
+
+# Function to check and update Homebrew
+check_homebrew() {
+    echo "Installing or updating Homebrew..."
+    if ! command -v brew &> /dev/null; then
+        echo "Homebrew appears to be missing. Installing Homebrew..."
+        eval $INSTALL_HOMEBREW && print_check "Homebrew installed" || print_error "Failed to install Homebrew"
+    else
+        echo "Homebrew is installed. Updating Homebrew..."
+        brew update && print_check "Homebrew updated" || print_error "Failed to update Homebrew"
+    fi
+}
+
+# Function to check and upgrade Homebrew packages
+check_and_upgrade_brew_packages() {
+    echo "Checking for brew package upgrades..."
+    if brew outdated &> /dev/null; then
+        echo "Brew upgrades available. Upgrading packages..."
+        brew upgrade && print_check "Brew packages upgraded" || print_error "Failed to upgrade brew packages"
+    else
+        print_check "All brew packages are up-to-date."
+    fi
+}
+
+# Function to check and update Git
+check_git() {
+    echo "Installing or updating Git..."
+    if ! command -v git &> /dev/null; then
+        echo "Git appears to be missing. Installing Git..."
+        # eval $INSTALL_GIT && print_check "Git installed" || print_error "Failed to install Git"
+    else
+        echo "Git is already installed. Updating Git..."
+        # brew upgrade git && print_check "Git updated" || print_error "Failed to update Git"
+    fi
+}
+
+# Function to check and update iTerm2
+check_iterm2() {
+    echo "Installing or updating iTerm2..."
+    if ! brew list --cask | grep -q iterm2; then
+        echo "iTerm2 appears to be missing. Installing iTerm2..."
+        # eval $INSTALL_ITERM2 && print_check "iTerm2 installed" || print_error "Failed to install iTerm2"
+    else
+        echo "iTerm2 is installed. Updating iTerm2..."
+        # brew upgrade --cask iterm2 && print_check "iTerm2 updated" || print_error "Failed to update iTerm2"
+    fi
+}
+
+# Function to check and update Python
+check_python() {
+    echo "Installing or updating Python..."
+    if ! brew list | grep -q python; then
+        echo "Python appears to be missing. Installing Python..."
+        # eval $INSTALL_PYTHON && print_check "Python installed" || print_error "Failed to install Python"
+    else
+        echo "Python is already installed. Updating Python..."
+        # brew upgrade python && print_check "Python updated" || print_error "Failed to update Python"
+    fi
+}
+
+# Function to check pip
+check_pip() {
+    echo "Checking pip..."
+    # pip is installed by default with Python, so no separate installation is needed
+    print_check "pip checked"
+}
+
+# Function to check and update pipx
+check_pipx() {
+    echo "Installing or updating pipx..."
+    if ! brew list | grep -q pipx; then
+        echo "pipx appears to be missing. Installing pipx..."
+        # eval $INSTALL_PIPX && print_check "pipx installed" || print_error "Failed to install pipx"
+    else
+        echo "pipx is already installed. Updating pipx..."
+        # brew upgrade pipx && print_check "pipx updated" || print_error "Failed to update pipx"
+    fi
+}
+
+# Function to check and update Visual Studio Code
+check_vscode() {
+    echo "Installing or updating Visual Studio Code..."
+    if ! brew list --cask | grep -q visual-studio-code; then
+        echo "Visual Studio Code appears to be missing. Installing Visual Studio Code..."
+        # eval $INSTALL_VSCODE && print_check "Visual Studio Code installed" || print_error "Failed to install Visual Studio Code"
+    else
+        echo "Visual Studio Code is already installed. Updating Visual Studio Code..."
+        # brew upgrade --cask visual-studio-code && print_check "Visual Studio Code updated" || print_error "Failed to update Visual Studio Code"
+    fi
+}
+
+# Function to check and install Xcode Command Line Tools
+check_xcode() {
+    echo "Installing or updating Xcode Command Line Tools..."
+    if ! xcode-select -p &> /dev/null; then
+        echo "Xcode Command Line Tools appear to be missing. Installing Xcode Command Line Tools..."
+        # eval $INSTALL_XCODE && print_check "Xcode Command Line Tools installed" || print_error "Failed to install Xcode Command Line Tools"
+    else
+        echo "Xcode Command Line Tools are already installed."
+    fi
+
+    echo "Accepting Xcode license agreement..."
+    # eval $ACCEPT_XCODE_LICENSE && print_check "Xcode license agreement accepted" || print_error "Failed to accept Xcode license agreement"
+}
+
+# Function to check and update Docker
+check_docker() {
+    echo "Installing or updating Docker..."
+    if ! command -v docker &> /dev/null; then
+        echo "Docker appears to be missing. Installing Docker..."
+        # eval $INSTALL_DOCKER && print_check "Docker installed" || print_error "Failed to install Docker"
+    else
+        echo "Docker is already installed. Updating Docker..."
+        # brew upgrade --cask docker && print_check "Docker updated" || print_error "Failed to update Docker"
+    fi
+}
+
+# Function to check and install Oh My Zsh
+check_oh_my_zsh() {
+    echo "Installing or updating Oh My Zsh..."
+    if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
+        echo "Oh My Zsh appears to be missing. Installing Oh My Zsh..."
+        # eval $INSTALL_OH_MY_ZSH && print_check "Oh My Zsh installed" || print_error "Failed to install Oh My Zsh"
+    else
+        echo "Oh My Zsh is already installed."
+        print_check "Oh My Zsh checked"
+    fi
+}
+
+
+# Main function to check and update all applications
+main() {
+    echo "Setting up/updating mac environment."
+    process_parameters "$@"
+    echo "Completed setting up/updating mac environment."
+}
+
+# Run the main function
+main "$@"
