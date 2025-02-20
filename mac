@@ -156,8 +156,6 @@ check_homebrew() {
     if ! command -v brew &> /dev/null; then
         echo "Homebrew appears to be missing. Installing Homebrew..."
         eval $INSTALL_HOMEBREW && print_check "Homebrew installed" || print_error "Failed to install Homebrew"
-	#eval $INSTALL_HOMEBREW
-	#print_check "Homebrew installed"
     else
         echo "Homebrew is installed. Updating Homebrew..."
         brew update && print_check "Homebrew updated" || print_error "Failed to update Homebrew"
@@ -180,10 +178,10 @@ check_git() {
     echo "Installing or updating Git..."
     if ! command -v git &> /dev/null; then
         echo "Git appears to be missing. Installing Git..."
-        # eval $INSTALL_GIT && print_check "Git installed" || print_error "Failed to install Git"
+        eval $INSTALL_GIT && print_check "Git installed" || print_error "Failed to install Git"
     else
         echo "Git is already installed. Updating Git..."
-        # brew upgrade git && print_check "Git updated" || print_error "Failed to update Git"
+        brew upgrade git && print_check "Git updated" || print_error "Failed to update Git"
     fi
 }
 
@@ -192,10 +190,10 @@ check_iterm2() {
     echo "Installing or updating iTerm2..."
     if ! brew list --cask | grep -q iterm2; then
         echo "iTerm2 appears to be missing. Installing iTerm2..."
-        # eval $INSTALL_ITERM2 && print_check "iTerm2 installed" || print_error "Failed to install iTerm2"
+        eval $INSTALL_ITERM2 && print_check "iTerm2 installed" || print_error "Failed to install iTerm2"
     else
         echo "iTerm2 is installed. Updating iTerm2..."
-        # brew upgrade --cask iterm2 && print_check "iTerm2 updated" || print_error "Failed to update iTerm2"
+        brew upgrade --cask iterm2 && print_check "iTerm2 updated" || print_error "Failed to update iTerm2"
     fi
 }
 
@@ -204,10 +202,10 @@ check_python() {
     echo "Installing or updating Python..."
     if ! brew list | grep -q python; then
         echo "Python appears to be missing. Installing Python..."
-        # eval $INSTALL_PYTHON && print_check "Python installed" || print_error "Failed to install Python"
+        eval $INSTALL_PYTHON && print_check "Python installed" || print_error "Failed to install Python"
     else
         echo "Python is already installed. Updating Python..."
-        # brew upgrade python && print_check "Python updated" || print_error "Failed to update Python"
+        brew upgrade python && print_check "Python updated" || print_error "Failed to update Python"
     fi
 }
 
@@ -223,10 +221,10 @@ check_pipx() {
     echo "Installing or updating pipx..."
     if ! brew list | grep -q pipx; then
         echo "pipx appears to be missing. Installing pipx..."
-        # eval $INSTALL_PIPX && print_check "pipx installed" || print_error "Failed to install pipx"
+        eval $INSTALL_PIPX && print_check "pipx installed" || print_error "Failed to install pipx"
     else
         echo "pipx is already installed. Updating pipx..."
-        # brew upgrade pipx && print_check "pipx updated" || print_error "Failed to update pipx"
+        brew upgrade pipx && print_check "pipx updated" || print_error "Failed to update pipx"
     fi
 }
 
@@ -235,10 +233,10 @@ check_vscode() {
     echo "Installing or updating Visual Studio Code..."
     if ! brew list --cask | grep -q visual-studio-code; then
         echo "Visual Studio Code appears to be missing. Installing Visual Studio Code..."
-        # eval $INSTALL_VSCODE && print_check "Visual Studio Code installed" || print_error "Failed to install Visual Studio Code"
+        eval $INSTALL_VSCODE && print_check "Visual Studio Code installed" || print_error "Failed to install Visual Studio Code"
     else
         echo "Visual Studio Code is already installed. Updating Visual Studio Code..."
-        # brew upgrade --cask visual-studio-code && print_check "Visual Studio Code updated" || print_error "Failed to update Visual Studio Code"
+        brew upgrade --cask visual-studio-code && print_check "Visual Studio Code updated" || print_error "Failed to update Visual Studio Code"
     fi
 }
 
@@ -247,7 +245,7 @@ check_xcode() {
     echo "Installing or updating Xcode Command Line Tools..."
     if ! xcode-select -p &> /dev/null; then
         echo "Xcode Command Line Tools appear to be missing. Installing Xcode Command Line Tools..."
-        # eval $INSTALL_XCODE && print_check "Xcode Command Line Tools installed" || print_error "Failed to install Xcode Command Line Tools"
+        eval $INSTALL_XCODE && print_check "Xcode Command Line Tools installed" || print_error "Failed to install Xcode Command Line Tools"
     else
         echo "Xcode Command Line Tools are already installed."
     fi
@@ -261,10 +259,10 @@ check_docker() {
     echo "Installing or updating Docker..."
     if ! command -v docker &> /dev/null; then
         echo "Docker appears to be missing. Installing Docker..."
-        # eval $INSTALL_DOCKER && print_check "Docker installed" || print_error "Failed to install Docker"
+        eval $INSTALL_DOCKER && print_check "Docker installed" || print_error "Failed to install Docker"
     else
         echo "Docker is already installed. Updating Docker..."
-        # brew upgrade --cask docker && print_check "Docker updated" || print_error "Failed to update Docker"
+        brew upgrade --cask docker && print_check "Docker updated" || print_error "Failed to update Docker"
     fi
 }
 
@@ -273,7 +271,7 @@ check_oh_my_zsh() {
     echo "Installing or updating Oh My Zsh..."
     if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
         echo "Oh My Zsh appears to be missing. Installing Oh My Zsh..."
-        # eval $INSTALL_OH_MY_ZSH && print_check "Oh My Zsh installed" || print_error "Failed to install Oh My Zsh"
+        eval $INSTALL_OH_MY_ZSH && print_check "Oh My Zsh installed" || print_error "Failed to install Oh My Zsh"
     else
         echo "Oh My Zsh is already installed."
         print_check "Oh My Zsh checked"
