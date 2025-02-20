@@ -4,7 +4,7 @@
 
 
 # Installation commands
-INSTALL_HOMEBREW="/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+INSTALL_HOMEBREW='/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
 INSTALL_GIT="brew install git"
 INSTALL_ITERM2="brew install --cask iterm2"
 INSTALL_PYTHON="brew install python"
@@ -155,9 +155,9 @@ check_homebrew() {
     echo "Installing or updating Homebrew..."
     if ! command -v brew &> /dev/null; then
         echo "Homebrew appears to be missing. Installing Homebrew..."
-        #eval $INSTALL_HOMEBREW && print_check "Homebrew installed" || print_error "Failed to install Homebrew"
-	eval $INSTALL_HOMEBREW
-	print_check "Homebrew installed"
+        eval $INSTALL_HOMEBREW && print_check "Homebrew installed" || print_error "Failed to install Homebrew"
+	#eval $INSTALL_HOMEBREW
+	#print_check "Homebrew installed"
     else
         echo "Homebrew is installed. Updating Homebrew..."
         brew update && print_check "Homebrew updated" || print_error "Failed to update Homebrew"
