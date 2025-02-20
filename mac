@@ -1,8 +1,6 @@
 #!/bin/bash
 # This sets up the initial set of tools and applications I usually install on a new MacOS system
 
-
-
 # Installation commands
 INSTALL_HOMEBREW='/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
 INSTALL_GIT="brew install git"
@@ -14,6 +12,7 @@ INSTALL_XCODE="xcode-select --install"
 ACCEPT_XCODE_LICENSE="sudo xcodebuild -license accept"
 INSTALL_DOCKER="brew install --cask docker"
 INSTALL_OH_MY_ZSH='sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+INSTALL_RUSTDESK="brew install --cask rustdesk"
 
 # TODO: Do we want to pin specific software versions?
 
@@ -39,6 +38,7 @@ process_parameters() {
     local run_xcode=false
     local run_docker=false
     local run_oh_my_zsh=false
+    local run_rustdesk=false
 
     while [[ "$#" -gt 0 ]]; do
         case $1 in
@@ -56,6 +56,7 @@ process_parameters() {
                 echo "  --xcode                    Install or update Xcode Command Line Tools"
                 echo "  --docker                   Install or update Docker"
                 echo "  --oh-my-zsh                Install or update Oh My Zsh"
+                echo "  --rustdesk                 Install or update RustDesk"
                 exit 0
                 ;;
             --all)
@@ -88,6 +89,9 @@ process_parameters() {
             --oh-my-zsh)
                 run_oh_my_zsh=true
                 ;;
+            --rustdesk)
+                run_rustdesk=true
+                ;;
             *)
                 echo "Unknown option: $1"
                 echo "Use --help to see the valid options."
@@ -107,6 +111,7 @@ process_parameters() {
         run_xcode=true
         run_docker=true
         run_oh_my_zsh=true
+        run_rustdesk=true
     fi
 
     # Update this section if we add more pieces of software to install/update
@@ -120,6 +125,7 @@ process_parameters() {
     $run_vscode && check_vscode
     $run_xcode && check_xcode
     $run_docker && check_docker
+    $run_rustdesk && check_rustdesk
 }
 
 # Generic function to set or replace an environment variable in .zshrc
@@ -275,6 +281,18 @@ check_oh_my_zsh() {
     else
         echo "Oh My Zsh is already installed."
         print_check "Oh My Zsh checked"
+    fi
+}
+
+# Check and install/update RustDesk
+check_rustdesk() {
+    echo "Installing or updating RustDesk..."
+    if ! brew list --cask | grep -q rustdesk; then
+        echo "RustDesk appears to be missing. Installing RustDesk..."
+        eval $INSTALL_RUSTDESK && print_check "RustDesk installed" || print_error "Failed to install RustDesk"
+    else
+        echo "RustDesk is already installed. Updating RustDesk..."
+        brew upgrade --cask rustdesk && print_check "RustDesk updated" || print_error "Failed to update RustDesk"
     fi
 }
 
