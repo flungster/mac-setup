@@ -155,7 +155,9 @@ check_homebrew() {
     echo "Installing or updating Homebrew..."
     if ! command -v brew &> /dev/null; then
         echo "Homebrew appears to be missing. Installing Homebrew..."
-        eval $INSTALL_HOMEBREW && print_check "Homebrew installed" || print_error "Failed to install Homebrew"
+        #eval $INSTALL_HOMEBREW && print_check "Homebrew installed" || print_error "Failed to install Homebrew"
+	eval $INSTALL_HOMEBREW
+	print_check "Homebrew installed"
     else
         echo "Homebrew is installed. Updating Homebrew..."
         brew update && print_check "Homebrew updated" || print_error "Failed to update Homebrew"
