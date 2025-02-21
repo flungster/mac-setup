@@ -13,6 +13,7 @@ ACCEPT_XCODE_LICENSE="sudo xcodebuild -license accept"
 INSTALL_DOCKER="brew install --cask docker"
 INSTALL_OH_MY_ZSH='sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
 INSTALL_RUSTDESK="brew install --cask rustdesk"
+INSTALL_OLLAMA="brew install ollama"
 
 # TODO: Do we want to pin specific software versions?
 
@@ -39,6 +40,7 @@ process_parameters() {
     local run_docker=false
     local run_oh_my_zsh=false
     local run_rustdesk=false
+    local run_ollama=false
 
     while [[ "$#" -gt 0 ]]; do
         case $1 in
@@ -57,6 +59,7 @@ process_parameters() {
                 echo "  --docker                   Install or update Docker"
                 echo "  --oh-my-zsh                Install or update Oh My Zsh"
                 echo "  --rustdesk                 Install or update RustDesk"
+                echo "  --ollama                   Install or update Ollama"
                 exit 0
                 ;;
             --all)
@@ -92,6 +95,9 @@ process_parameters() {
             --rustdesk)
                 run_rustdesk=true
                 ;;
+            --ollama)
+                run_ollama=true
+                ;;
             *)
                 echo "Unknown option: $1"
                 echo "Use --help to see the valid options."
@@ -112,6 +118,7 @@ process_parameters() {
         run_docker=true
         run_oh_my_zsh=true
         run_rustdesk=true
+        run_ollama=true
     fi
 
     # Update this section if we add more pieces of software to install/update
@@ -126,6 +133,7 @@ process_parameters() {
     $run_xcode && check_xcode
     $run_docker && check_docker
     $run_rustdesk && check_rustdesk
+    $run_ollama && check_ollama
 }
 
 # Generic function to set or replace an environment variable in .zshrc
@@ -296,6 +304,17 @@ check_rustdesk() {
     fi
 }
 
+# Check and install/update Ollama
+check_ollama() {
+    echo "Installing or updating Ollama..."
+    if ! brew list | grep -q ollama; then
+        echo "Ollama appears to be missing. Installing Ollama..."
+        eval $INSTALL_OLLAMA && print_check "Ollama installed" || print_error "Failed to install Ollama"
+    else
+        echo "Ollama is already installed. Updating Ollama..."
+        brew upgrade ollama && print_check "Ollama updated" || print_error "Failed to update Ollama"
+    fi
+}
 
 # Main function to check and update all applications
 main() {
