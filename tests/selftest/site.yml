@@ -1,0 +1,21 @@
+---
+# M1 harness selftest. Proves the stub plumbing end-to-end: a fake cask and a
+# fake formula flow through real community.general modules plus a bare command
+# task, with all CLI calls captured by the stubs in tests/stubs/.
+- name: Harness selftest (fake cask and formula)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Ensure fake cask is present
+      community.general.homebrew_cask:
+        name: fakeapp
+        path: "{{ homebrew_path | default(omit) }}"
+
+    - name: Ensure fake formula is present
+      community.general.homebrew:
+        name: fakepkg
+        path: "{{ homebrew_path | default(omit) }}"
+
+    - name: Scoped upgrade of the managed set (command path)
+      ansible.builtin.command: brew upgrade fakeapp fakepkg

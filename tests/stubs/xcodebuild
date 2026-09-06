@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Stub xcodebuild for offline playbook tests.
+
+STUB_TOOL="xcodebuild"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+sub="${1:-}"
+case "$sub" in
+  -version)
+    stub_log "-version"
+    if [ -n "$(stub_get xcode_version)" ]; then
+      echo "Xcode $(stub_get xcode_version)"
+    else
+      echo "error: Xcode not installed (stub)" >&2
+      exit 1
+    fi
+    ;;
+
+  -license) # playbooks call `xcodebuild -license accept` with sudo
+    stub_log "-license $*"
+    if [ -z "$(stub_get xcode_version)" ]; then
+      echo "error: Xcode not installed (stub)" >&2
+      exit 1
+    fi
+    stub_set xcode_license_accepted 1
+    ;;
+
+  -runFirstLaunch)
+    stub_log "-runFirstLaunch"
+    if [ -z "$(stub_get xcode_version)" ]; then
+      echo "error: Xcode not installed (stub)" >&2
+      exit 1
+    fi
+    stub_set xcode_first_launch_done 1
+    ;;
+
+  *)
+    echo "stub xcodebuild: unhandled subcommand: $sub" >&2
+    exit 1
+    ;;
+esac
+
+exit 0

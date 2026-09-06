@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Stub the Xcodes CLI (https://github.com/XcodesOrg/xcodes) for offline tests.
+
+STUB_TOOL="xcodes"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+sub="${1:-}"
+case "$sub" in
+  install) # `xcodes install --latest` or `xcodes install <version>`
+    stub_log "install $*"
+    ver=""
+    latest=0
+    for a in "$@"; do
+      case "$a" in
+        --latest) latest=1 ;;
+        -*) : ;;
+        *) ver="$a" ;;
+      esac
+    done
+    if [ "$latest" -eq 1 ]; then ver="$(stub_get fixture.latest_xcode)"; fi
+    if [ -z "$ver" ]; then
+      echo "stub xcodes: no target version (pass a version or set fixture.latest_xcode in state)" >&2
+      exit 1
+    fi
+    stub_set xcode_version "$ver"
+    echo "Installing Xcode $ver (stub)"
+    ;;
+
+  list) # print the installed version, if any
+    stub_log "list"
+    if [ -n "$(stub_get xcode_version)" ]; then echo "Xcode $(stub_get xcode_version) (installed)"; fi
+    ;;
+
+  *)
+    echo "stub xcodes: unhandled subcommand: $sub" >&2
+    exit 1
+    ;;
+esac
+
+exit 0

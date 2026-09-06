@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Stub Homebrew for offline playbook tests.
+# Implements only the subcommands used by the community.general homebrew and
+# homebrew_cask modules plus this repo's playbooks. Any other subcommand exits
+# non-zero on purpose so unexpected module behavior surfaces in tests.
+
+STUB_TOOL="brew"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+sub="${1:-}"
+if [ -n "$sub" ]; then shift; fi
+
+case "$sub" in
+  --version)
+    stub_log "--version"
+    echo "Homebrew 4.2.10"
+    ;;
+
+  update)
+    stub_log "update"
+    echo "Already up-to-date."
+    ;;
+
+  list)
+    kind="" name=""
+    for a in "$@"; do
+      case "$a" in
+        --cask) kind="cask" ;;
+        --formula | --formulae) kind="formula" ;;
+        -*) : ;;
+        *) name="$a" ;;
+      esac
+    done
+    stub_log "list $*"
+    if [ -z "$name" ]; then
+      while IFS='=' read -r k _v; do
+        case "$k" in
+          cask.*)
+            if [ -n "$kind" ] && [ "$kind" != "cask" ]; then continue; fi
+            printf '%s\n' "${k#cask.}"
+            ;;
+          formula.*)
+            if [ -n "$kind" ] && [ "$kind" != "formula" ]; then continue; fi
+            case "${k#formula.}" in *.outdated) : ;; *) printf '%s\n' "${k#formula.}" ;; esac
+            ;;
+        esac
+      done <"$STUB_STATE_FILE"
+    elif [ -n "$(stub_get "cask.$name")" ] || [ -n "$(stub_get "formula.$name")" ]; then
+      printf '%s\n' "$name (stub)"
+    else
+      echo "Error: no packages found for $name" >&2
+      exit 1
+    fi
+    ;;
+
+  info)
+    out=""
+    first=1
+    for a in "$@"; do
+      case "$a" in -*) continue ;; esac
+      ver="$(stub_get "formula.$a")"
+      flag="$(stub_get "formula.$a.outdated")"
+      installed="[]"
+      if [ -n "$ver" ]; then installed="[\"$ver\"]"; fi
+      outdated="false"
+      if [ -n "$flag" ]; then outdated="true"; fi
+      entry="{\"name\":\"$a\",\"full_name\":\"homebrew/core/$a\",\"tap\":null,\"aliases\":[],\"oldnames\":[],\"installed\":$installed,\"outdated\":$outdated}"
+      if [ "$first" -eq 1 ]; then out="$entry"; first=0; else out="${out},${entry}"; fi
+    done
+    stub_log "info $*"
+    printf '{"formulae":[%s],"casks":[]}\n' "$out"
+    ;;
+
+  install)
+    kind=""
+    for a in "$@"; do case "$a" in --cask) kind="cask" ;; esac; done
+    stub_log "install $*"
+    for a in "$@"; do
+      case "$a" in -*) continue ;; esac
+      if [ "$kind" = "cask" ]; then
+        stub_set "cask.$a" 1
+      else
+        if [ -z "$(stub_get "formula.$a")" ]; then stub_set "formula.$a" 1.0.0; fi
+        stub_set "formula.$a.outdated" ""
+      fi
+    done
+    echo "===> Installed (stub)"
+    ;;
+
+  upgrade)
+    stub_log "upgrade $*"
+    for a in "$@"; do
+      case "$a" in -*) continue ;; esac
+      if [ -n "$(stub_get "formula.$a")" ] && [ -n "$(stub_get "formula.$a.outdated")" ]; then
+        stub_set "formula.$a.outdated" ""
+      fi
+    done
+    ;;
+
+  outdated)
+    stub_log "outdated $*" # nothing is ever outdated in the stub; empty output
+    ;;
+
+  *)
+    echo "stub brew: unhandled subcommand: $sub $*" >&2
+    exit 1
+    ;;
+esac
+
+exit 0
