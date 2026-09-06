@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Stub curl for offline bootstrap tests. Logs the invocation, then emits the
+# contents of $FAKE_BREW_INSTALLER (a script that plants a fake brew) when
+# asked to fetch an http(s) URL. Anything else fails loudly on purpose.
+
+STUB_TOOL="curl"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+stub_log "$@"
+
+url="" a
+for a in "$@"; do
+  case "$a" in http://* | https://*) url="$a"; break ;; esac
+done
+
+if [ -z "$url" ]; then
+  echo "stub curl: no URL in args ($*)" >&2
+  exit 1
+fi
+
+if [ -z "${FAKE_BREW_INSTALLER:-}" ] || [ ! -f "$FAKE_BREW_INSTALLER" ]; then
+  echo "stub curl: FAKE_BREW_INSTALLER is not set or unreadable (requested $url)" >&2
+  exit 1
+fi
+
+cat "$FAKE_BREW_INSTALLER"
+exit 0
