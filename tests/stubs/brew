@@ -102,6 +102,11 @@ case "$sub" in
     stub_log "outdated $*" # nothing is ever outdated in the stub; empty output
     ;;
 
+  shellenv)
+    stub_log "shellenv"
+    printf 'export HOMEBREW_PREFIX="%s"\n' "${HOMEBREW_PREFIX:-}"
+    ;;
+
   *)
     echo "stub brew: unhandled subcommand: $sub $*" >&2
     exit 1
