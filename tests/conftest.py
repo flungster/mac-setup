@@ -34,7 +34,7 @@ def seed_state(state_dir, casks=(), formulas=None, outdated_formulas=(), extra=N
     (state_dir / "state.env").write_text("\n".join(lines) + ("\n" if lines else ""))
 
 
-def run_playbook(playbook, state_dir, extra_vars=()):
+def run_playbook(playbook, state_dir, extra_vars=(), extra_env=None):
     env = dict(os.environ)
     b = venv_bin()
     env["PATH"] = f"{STUBS_DIR}{os.pathsep}{b}{os.pathsep}{env.get('PATH', '')}"
@@ -43,6 +43,8 @@ def run_playbook(playbook, state_dir, extra_vars=()):
     env["ANSIBLE_DEPRECATION_WARNINGS"] = "False"
     # homebrew_path="" disables the modules' hardcoded /usr/local:/opt/homebrew
     # search dirs (they take precedence over PATH), so the stubs in STUBS_DIR win.
+    if extra_env:
+        env.update(extra_env)
     cmd = [str(b / "ansible-playbook"), "-i", "localhost,", str(playbook), "-e", 'homebrew_path=""']
     for v in extra_vars:
         cmd += ["-e", v]
@@ -108,6 +110,10 @@ def bootstrap(tmp_path):
     env["STUB_STATE_DIR"] = str(state_dir)
     env["HOMEBREW_PREFIX"] = str(prefix)
     env["FAKE_BREW_INSTALLER"] = str(installer)
+    # bootstrap.sh runs playbooks/site.yml when present: give its ansible the
+    # same interpreter and warning settings as run_playbook.
+    env["ANSIBLE_PYTHON_INTERPRETER"] = str(b / "python")
+    env["ANSIBLE_DEPRECATION_WARNINGS"] = "False"
 
     def run(extra_env=None):
         merged = dict(env)

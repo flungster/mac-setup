@@ -3,6 +3,11 @@
 Matrix under test (brew x CLT, missing/present) plus the ansible ensure step
 and the playbook seam. Nothing real is installed: every CLI call lands in a
 stub, and "installing Homebrew" just plants a wrapper around the brew stub.
+
+Since M3, playbooks/site.yml exists and bootstrap runs it: every test seeds
+the app inventory as already present (casks=["1password"], see playbooks/
+site.yml) so these tests stay focused on the bootstrap steps themselves. If
+the inventory grows, seed it here too (or override per test).
 """
 from conftest import invocations, seed_state, state_entries
 
@@ -15,7 +20,7 @@ def _require_ok(result):
 
 def test_brew_and_clt_present_installs_nothing(bootstrap):
     bootstrap.install_brew()
-    seed_state(bootstrap.state_dir, formulas={"ansible": "9.0.0"}, extra={"clt": 1})
+    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"}, extra={"clt": 1})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -25,11 +30,14 @@ def test_brew_and_clt_present_installs_nothing(bootstrap):
     assert not [c for c in calls if c.startswith("brew install")], f"something installed: {calls}"
     assert "xcode-select --install" not in calls, f"CLT install triggered: {calls}"
     assert calls.count("brew shellenv") == 1, f"shellenv not evaluated once: {calls}"
-    assert "playbooks/site.yml not present yet" in result.stderr, result.stderr
+    # The playbook may legitimately do nothing brew-wise (e.g. 1Password is a
+    # real manual install on this machine — ADR-0001): assert it ran at all.
+    output = result.stdout + result.stderr  # ansible's stream varies by version
+    assert "PLAY RECAP" in output, f"playbook did not run: {output}"
 
 
 def test_missing_brew_runs_official_installer_once(bootstrap):
-    seed_state(bootstrap.state_dir, formulas={"ansible": "9.0.0"}, extra={"clt": 1})
+    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"}, extra={"clt": 1})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -46,7 +54,7 @@ def test_missing_brew_runs_official_installer_once(bootstrap):
 
 def test_missing_clt_triggers_install(bootstrap):
     bootstrap.install_brew()
-    seed_state(bootstrap.state_dir, formulas={"ansible": "9.0.0"})
+    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -56,7 +64,7 @@ def test_missing_clt_triggers_install(bootstrap):
 
 
 def test_fresh_mac_runs_both_installs(bootstrap):
-    seed_state(bootstrap.state_dir, formulas={"ansible": "9.0.0"})
+    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -69,7 +77,7 @@ def test_fresh_mac_runs_both_installs(bootstrap):
 
 def test_missing_ansible_is_installed_via_brew(bootstrap):
     bootstrap.install_brew()
-    seed_state(bootstrap.state_dir, extra={"clt": 1})
+    seed_state(bootstrap.state_dir, casks=["1password"], extra={"clt": 1})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -85,7 +93,7 @@ def test_missing_ansible_is_installed_via_brew(bootstrap):
 
 def test_present_ansible_is_not_reinstalled(bootstrap):
     bootstrap.install_brew()
-    seed_state(bootstrap.state_dir, formulas={"ansible": "9.0.0"}, extra={"clt": 1})
+    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"}, extra={"clt": 1})
 
     result = bootstrap.run()
     _require_ok(result)
