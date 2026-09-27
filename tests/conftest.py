@@ -89,6 +89,12 @@ def bootstrap(tmp_path):
     installer_text = "\n".join(
         [
             "#!/bin/sh",
+            # Record the env the installer was invoked with: NONINTERACTIVE=1 would
+            # make Homebrew's real installer check sudo non-interactively and fail on
+            # a fresh Mac — pin that bootstrap does not set it.
+            "printf 'NONINTERACTIVE=%s\\n' \"${{NONINTERACTIVE-UNSET}}\" > {0}".format(
+                shlex.quote(str(state_dir / "installer-env"))
+            ),
             f"mkdir -p {shlex.quote(str(prefix / 'bin'))}",
             "printf '%s\\n' '#!/bin/sh' 'exec {0} \"$@\"'{1}".format(
                 shlex.quote(str(STUBS_DIR / "brew")), f" > {shlex.quote(str(wrapper))}"

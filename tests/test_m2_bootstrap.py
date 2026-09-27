@@ -56,6 +56,13 @@ def test_missing_brew_runs_official_installer_once(bootstrap):
     assert wrapper.exists(), "fake installer did not plant a brew at HOMEBREW_PREFIX/bin/brew"
     assert wrapper.stat().st_mode & 0o111, "planted brew is not executable"
 
+    # Fresh-Mac regression: NONINTERACTIVE=1 makes Homebrew's installer check sudo
+    # with `sudo -n`, which fails without cached credentials — even for an admin.
+    installer_env = (bootstrap.state_dir / "installer-env").read_text().strip()
+    assert installer_env == "NONINTERACTIVE=UNSET", (
+        f"installer invoked with {installer_env!r} — it must be able to prompt for the password"
+    )
+
 
 def test_missing_clt_triggers_install(bootstrap):
     bootstrap.install_brew()

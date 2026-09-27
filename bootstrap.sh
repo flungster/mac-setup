@@ -53,8 +53,12 @@ ensure_xcode_license() {
 ensure_homebrew() {
   local brew="$HOMEBREW_PREFIX/bin/brew"
   if [ ! -x "$brew" ]; then
-    log "Homebrew not found at $HOMEBREW_PREFIX: installing from official script (non-interactive)"
-    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL "$BREW_INSTALL_URL")"
+    # Deliberately NOT NONINTERACTIVE=1: in that mode the official installer checks
+    # sudo with `sudo -n` (no password prompt), which fails on a fresh Mac where the
+    # session has no cached sudo credentials — even for an administrator. Interactive,
+    # the installer asks for the password in place (like every other step here).
+    log "Homebrew not found at $HOMEBREW_PREFIX: installing from official script (will ask for your password)"
+    /bin/bash -c "$(curl -fsSL "$BREW_INSTALL_URL")"
   else
     log "Homebrew found: $("$brew" --version | head -n1)"
   fi
