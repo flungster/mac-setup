@@ -1,7 +1,9 @@
 ---
 # M3: provision the app inventory. Re-running is the update path.
-# Per ADR-0001, anything already present on this machine — brew-managed or
-# manually installed — is left entirely alone (neither installed nor upgraded).
+# Per ADR-0001, an app already present on this machine is never installed.
+# Manual installs are left entirely alone (no install, no upgrade); apps brew
+# manages — including ones installed this run — are kept current by the scoped
+# upgrade.
 - name: Provision managed apps
   hosts: localhost
   connection: local
@@ -9,16 +11,24 @@
 
   vars:
     # ---- your app list -------------------------------------------------
-    # Casks are presence-checked at /Applications/<app_name>.app; formulas as
-    # `command -v <bin>` (defaults to the formula name). Entries already
-    # present that way are skipped and never upgraded.
+    # Casks are presence-checked at apps_dir/<app_name>.app; formulas as
+    # `command -v <bin>` (defaults to the formula name). Anything present is
+    # never installed; only manual installs are also excluded from upgrades.
     casks:
-      - name: 1password        # bootstrap dep — usually already present manually (ADR-0001)
+      - name: 1password            # bootstrap dep — usually already present manually (ADR-0001)
         app_name: 1Password
+      - name: iterm2               # .app is iTerm.app, not iterm2.app
+        app_name: iTerm
+      - name: visual-studio-code   # .app is "Visual Studio Code.app"
+        app_name: Visual Studio Code
 
-    formulas: []               # e.g. {name: gh} or {name: somebrew, bin: otherbin}
+    formulas:
+      - name: opencode             # the AI coding agent this repo is built with
+      - name: emacs                # I am still an emacs person
+      - name: gh
+      - name: uv
 
-    apps_dir: /Applications    # cask presence-check dir (overridable in tests)
+    apps_dir: /Applications        # cask presence-check dir (overridable in tests)
 
   tasks:
     - name: Detect casks already present (including manual installs)
@@ -34,23 +44,46 @@
       changed_when: false
       register: formula_presence
 
+    - name: Detect casks managed by Homebrew (manual installs are invisible to brew)
+      ansible.builtin.shell: brew list --cask {{ item.name }}
+      loop: "{{ casks }}"
+      failed_when: false
+      changed_when: false
+      register: cask_managed
+
+    - name: Detect formulas managed by Homebrew (manual installs are invisible to brew)
+      ansible.builtin.shell: brew list --formula {{ item.name }}
+      loop: "{{ formulas }}"
+      failed_when: false
+      changed_when: false
+      register: formula_managed
+
+    - name: Record the presence and management sets (ADR-0001)
+      ansible.builtin.set_fact:
+        present_casks: "{{ cask_presence.results | selectattr('stat.exists') | map(attribute='item.name') | list }}"
+        present_formulas: "{{ formula_presence.results | selectattr('stdout', 'ne', '') | map(attribute='item.name') | list }}"
+        managed_casks: "{{ cask_managed.results | selectattr('rc', 'equalto', 0) | map(attribute='item.name') | list }}"
+        managed_formulas: "{{ formula_managed.results | selectattr('rc', 'equalto', 0) | map(attribute='item.name') | list }}"
+
     - name: Record the manually-present set (never touched — ADR-0001)
       ansible.builtin.set_fact:
-        manual_casks: "{{ cask_presence.results | selectattr('stat.exists') | map(attribute='item.name') | list }}"
-        manual_formulas: "{{ formula_presence.results | selectattr('stdout', 'ne', '') | map(attribute='item.name') | list }}"
+        manual_casks: "{{ present_casks | difference(managed_casks) }}"
+        manual_formulas: "{{ present_formulas | difference(managed_formulas) }}"
 
     - name: Install casks that are not present (brew-managed idempotency is the module's job)
       community.general.homebrew_cask:
         name: "{{ item }}"
         path: "{{ homebrew_path | default(omit) }}"
-      loop: "{{ casks | map(attribute='name') | difference(manual_casks) | list }}"
+      loop: "{{ casks | rejectattr('name', 'in', present_casks) | map(attribute='name') | list }}"
 
     - name: Install formulas that are not present (brew-managed idempotency is the module's job)
       community.general.homebrew:
         name: "{{ item }}"
         path: "{{ homebrew_path | default(omit) }}"
-      loop: "{{ formulas | map(attribute='name') | difference(manual_formulas) | list }}"
+      loop: "{{ formulas | rejectattr('name', 'in', present_formulas) | map(attribute='name') | list }}"
 
-    - name: Scoped upgrade of the brew-managed set
-      ansible.builtin.command: "brew upgrade {{ ((casks | map(attribute='name') | difference(manual_casks)) + (formulas | map(attribute='name') | difference(manual_formulas))) | join(' ') }}"
+    # rejectattr keeps inventory order; the set-based `difference` filter would
+    # scramble it (Python hash randomization), making runs non-deterministic.
+    - name: Scoped upgrade of the brew-managed set (manual installs stay out — ADR-0001)
+      ansible.builtin.command: "brew upgrade {{ ((casks | rejectattr('name', 'in', manual_casks) | map(attribute='name') | list) + (formulas | rejectattr('name', 'in', manual_formulas) | map(attribute='name') | list)) | join(' ') }}"
       when: ((casks | length - manual_casks | length) + (formulas | length - manual_formulas | length)) > 0

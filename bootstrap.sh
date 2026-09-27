@@ -32,6 +32,24 @@ ensure_command_line_tools() {
   fi
 }
 
+ensure_xcode_license() {
+  # Full Xcode (unlike CLT) gates xcrun-served tools and `brew install` behind
+  # a license. A fresh Xcode install — or an update, which resets acceptance —
+  # leaves it unaccepted until sudo-accepted; CLT has no such gate. This script
+  # is human-driven, so prompt for the password in place (like the CLT dialog).
+  local devdir
+  devdir="$(xcode-select -p)" || return 0
+  case "$devdir" in
+    /Library/Developer/*) log "CLT active: no Xcode license gate"; return 0 ;;
+  esac
+  if xcodebuild -license status >/dev/null 2>&1; then
+    log "Xcode license: accepted"
+    return 0
+  fi
+  log "Xcode license not accepted: running 'sudo xcodebuild -license accept' (may prompt for a password)"
+  sudo xcodebuild -license accept
+}
+
 ensure_homebrew() {
   local brew="$HOMEBREW_PREFIX/bin/brew"
   if [ ! -x "$brew" ]; then
@@ -56,7 +74,10 @@ ensure_ansible() {
 run_playbook() {
   if [ -f "$REPO_ROOT/playbooks/site.yml" ]; then
     log "running provision playbook (playbooks/site.yml)"
-    (cd "$REPO_ROOT" && ansible-playbook -i playbooks/hosts playbooks/site.yml)
+    # homebrew_path="" keeps the brew modules on PATH lookup: in tests that is
+    # the stub dir; here, /opt/homebrew/bin after `eval "$(brew shellenv)"` above.
+    # (Omitting it makes them prefer hardcoded /usr/local:/opt/homebrew dirs.)
+    (cd "$REPO_ROOT" && ansible-playbook -i playbooks/hosts -e 'homebrew_path=""' playbooks/site.yml)
   else
     log "playbooks/site.yml not present yet: skipping (lands in a later milestone)"
   fi
@@ -64,6 +85,7 @@ run_playbook() {
 
 main() {
   ensure_command_line_tools
+  ensure_xcode_license
   ensure_homebrew
   ensure_ansible
   run_playbook

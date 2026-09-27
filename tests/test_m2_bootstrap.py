@@ -1,17 +1,21 @@
 """M2: bootstrap.sh against the stubs.
 
-Matrix under test (brew x CLT, missing/present) plus the ansible ensure step
-and the playbook seam. Nothing real is installed: every CLI call lands in a
-stub, and "installing Homebrew" just plants a wrapper around the brew stub.
+Matrix under test (brew x CLT, missing/present) plus the Xcode license
+pre-flight, the ansible ensure step and the playbook seam. Nothing real is
+installed: every CLI call lands in a stub, "installing Homebrew" just plants
+a wrapper around the brew stub, and sudo runs as-is against those stubs.
 
 Since M3, playbooks/site.yml exists and bootstrap runs it: every test seeds
-the app inventory as already present (casks=["1password"], see playbooks/
-site.yml) so these tests stay focused on the bootstrap steps themselves. If
-the inventory grows, seed it here too (or override per test).
+the app inventory as already brew-managed (INVENTORY_* below, mirrors
+playbooks/site.yml) so these tests stay focused on the bootstrap steps
+themselves. If the inventory grows, grow the seeds here too (or override per
+test).
 """
 from conftest import invocations, seed_state, state_entries
 
 OFFICIAL_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+INVENTORY_CASKS = ("1password", "iterm2", "visual-studio-code")
+INVENTORY_FORMULAS = {"opencode": "1.0.0", "emacs": "30.2", "gh": "2.67.0", "uv": "0.5.4"}
 
 
 def _require_ok(result):
@@ -20,7 +24,7 @@ def _require_ok(result):
 
 def test_brew_and_clt_present_installs_nothing(bootstrap):
     bootstrap.install_brew()
-    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"}, extra={"clt": 1})
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"}, extra={"clt": 1})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -29,6 +33,7 @@ def test_brew_and_clt_present_installs_nothing(bootstrap):
     assert not [c for c in calls if c.startswith("curl ")], f"brew installer ran: {calls}"
     assert not [c for c in calls if c.startswith("brew install")], f"something installed: {calls}"
     assert "xcode-select --install" not in calls, f"CLT install triggered: {calls}"
+    assert not [c for c in calls if "license" in c], f"CLT-only machine hit the Xcode license gate: {calls}"
     assert calls.count("brew shellenv") == 1, f"shellenv not evaluated once: {calls}"
     # The playbook may legitimately do nothing brew-wise (e.g. 1Password is a
     # real manual install on this machine — ADR-0001): assert it ran at all.
@@ -37,7 +42,7 @@ def test_brew_and_clt_present_installs_nothing(bootstrap):
 
 
 def test_missing_brew_runs_official_installer_once(bootstrap):
-    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"}, extra={"clt": 1})
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"}, extra={"clt": 1})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -54,7 +59,7 @@ def test_missing_brew_runs_official_installer_once(bootstrap):
 
 def test_missing_clt_triggers_install(bootstrap):
     bootstrap.install_brew()
-    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"})
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -64,7 +69,7 @@ def test_missing_clt_triggers_install(bootstrap):
 
 
 def test_fresh_mac_runs_both_installs(bootstrap):
-    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"})
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -77,7 +82,7 @@ def test_fresh_mac_runs_both_installs(bootstrap):
 
 def test_missing_ansible_is_installed_via_brew(bootstrap):
     bootstrap.install_brew()
-    seed_state(bootstrap.state_dir, casks=["1password"], extra={"clt": 1})
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas=dict(INVENTORY_FORMULAS), extra={"clt": 1})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -93,7 +98,7 @@ def test_missing_ansible_is_installed_via_brew(bootstrap):
 
 def test_present_ansible_is_not_reinstalled(bootstrap):
     bootstrap.install_brew()
-    seed_state(bootstrap.state_dir, casks=["1password"], formulas={"ansible": "9.0.0"}, extra={"clt": 1})
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"}, extra={"clt": 1})
 
     result = bootstrap.run()
     _require_ok(result)
@@ -101,3 +106,51 @@ def test_present_ansible_is_not_reinstalled(bootstrap):
     calls = invocations(bootstrap.state_dir)
     installs = [c for c in calls if c.startswith("brew install")]
     assert not installs, f"ansible (or something) was reinstalled: {installs}"
+
+
+def test_unaccepted_xcode_license_is_accepted_before_brew(bootstrap):
+    # Full Xcode active (xcode_version) with an unaccepted license — the state a
+    # fresh Xcode install or update leaves behind: xcrun-served tools and
+    # `brew` fail until it is sudo-accepted. Bootstrap must clear the gate
+    # before touching brew.
+    bootstrap.install_brew()
+    seed_state(
+        bootstrap.state_dir,
+        casks=INVENTORY_CASKS,
+        formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"},
+        extra={"clt": 1, "xcode_version": "26.0"},
+    )
+
+    result = bootstrap.run()
+    _require_ok(result)
+
+    calls = invocations(bootstrap.state_dir)
+    assert "xcodebuild -license status" in calls, f"license not probed: {calls}"
+    assert "sudo xcodebuild -license accept" in calls, f"unaccepted license not accepted: {calls}"
+    assert calls.index("xcodebuild -license status") < calls.index("sudo xcodebuild -license accept"), (
+        f"accept ran before the probe: {calls}"
+    )
+    brew_calls = [c for c in calls if c.startswith("brew ")]
+    assert brew_calls and calls.index(brew_calls[0]) > calls.index("sudo xcodebuild -license accept"), (
+        f"brew ran before the license was accepted: {calls}"
+    )
+    assert "xcode_license_accepted" in state_entries(bootstrap.state_dir), (
+        f"acceptance did not persist: {state_entries(bootstrap.state_dir)}"
+    )
+
+
+def test_accepted_xcode_license_is_not_reaccepted(bootstrap):
+    bootstrap.install_brew()
+    seed_state(
+        bootstrap.state_dir,
+        casks=INVENTORY_CASKS,
+        formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"},
+        extra={"clt": 1, "xcode_version": "26.0", "xcode_license_accepted": 1},
+    )
+
+    result = bootstrap.run()
+    _require_ok(result)
+
+    calls = invocations(bootstrap.state_dir)
+    assert "xcodebuild -license status" in calls, f"license not probed: {calls}"
+    assert "sudo xcodebuild -license accept" not in calls, f"already-accepted license re-accepted: {calls}"

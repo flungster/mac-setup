@@ -6,6 +6,8 @@ STUB_TOOL="xcodebuild"
 source "$(dirname "$0")/_stub_state.sh"
 
 sub="${1:-}"
+if [ -n "$sub" ]; then shift; fi
+
 case "$sub" in
   -version)
     stub_log "-version"
@@ -17,13 +19,22 @@ case "$sub" in
     fi
     ;;
 
-  -license) # playbooks call `xcodebuild -license accept` with sudo
+  -license) # bootstrap.sh probes `xcodebuild -license status`, accepts with sudo
     stub_log "-license $*"
     if [ -z "$(stub_get xcode_version)" ]; then
       echo "error: Xcode not installed (stub)" >&2
       exit 1
     fi
-    stub_set xcode_license_accepted 1
+    if [ "${1:-}" = "status" ]; then
+      if [ -n "$(stub_get xcode_license_accepted)" ]; then
+        echo "license has been agreed"
+      else
+        echo "You have not agreed to the Xcode license agreements (stub)" >&2
+        exit 1
+      fi
+    else # accept / bare -license: grant it and persist (like the real tool)
+      stub_set xcode_license_accepted 1
+    fi
     ;;
 
   -runFirstLaunch)

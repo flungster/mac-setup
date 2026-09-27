@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stub sudo for offline bootstrap tests: log, then run the command as-is
+# (tests have no root; STUBS_DIR is first on PATH, so the inner command
+# resolves to its stub too).
+
+STUB_TOOL="sudo"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+stub_log "$@"
+exec "$@"
