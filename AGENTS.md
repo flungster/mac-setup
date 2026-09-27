@@ -1,3 +1,11 @@
+## Commit messages
+
+This repo is 100% agent-coded (see README) — keep that attribution greppable in git history. End every commit message with a trailer line naming the harness and model(s) that produced it:
+
+    Generated with opencode — model(s): <exact id(s), comma-separated if more than one>
+
+List every model used in the session, including subagents; use the exact model id from your context. If you are not running in opencode, name that harness instead.
+
 ## Agent skills
 
 ### Issue tracker
