@@ -116,6 +116,11 @@ def bootstrap(tmp_path):
     env["STUB_STATE_DIR"] = str(state_dir)
     env["HOMEBREW_PREFIX"] = str(prefix)
     env["FAKE_BREW_INSTALLER"] = str(installer)
+    # site.yml presence-checks Oh My Zsh at $ZSH: point it at an existing tmp
+    # dir so bootstrap tests never reach its installer (tested in M3).
+    omz = tmp_path / "oh-my-zsh"
+    omz.mkdir()
+    env["ZSH"] = str(omz)
     # bootstrap.sh runs playbooks/site.yml when present: give its ansible the
     # same interpreter and warning settings as run_playbook.
     env["ANSIBLE_PYTHON_INTERPRETER"] = str(b / "python")

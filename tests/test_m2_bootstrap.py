@@ -15,7 +15,7 @@ from conftest import invocations, seed_state, state_entries
 
 OFFICIAL_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 INVENTORY_CASKS = ("1password", "iterm2", "visual-studio-code")
-INVENTORY_FORMULAS = {"opencode": "1.0.0", "emacs": "30.2", "gh": "2.67.0", "uv": "0.5.4"}
+INVENTORY_FORMULAS = {"opencode": "1.0.0", "emacs": "30.2", "gh": "2.67.0", "uv": "0.5.4", "shellcheck": "0.10.0"}
 
 
 def _require_ok(result):

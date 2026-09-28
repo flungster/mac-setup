@@ -23,7 +23,9 @@ That's it. `bootstrap.sh` ensures, in order: Command Line Tools (a system dialog
 
 **Re-running is the update path.** Run `./bootstrap.sh` again to keep brew-managed apps in the inventory current and install anything missing. Apps that are present but not brew-managed (e.g. a manually installed 1Password) are never touched, by install or upgrade.
 
-The managed inventory — what actually gets installed/upgraded — lives in `playbooks/site.yml` (currently: 1Password, iTerm2 and Visual Studio Code as casks; opencode, emacs, gh and uv as formulas).
+The managed inventory — what actually gets installed/upgraded — lives in `playbooks/site.yml` (currently: 1Password, iTerm2 and Visual Studio Code as casks; opencode, emacs, gh, uv and shellcheck as formulas; plus Oh My Zsh).
+
+Oh My Zsh isn't in Homebrew, so it's installed with its official script, only when `~/.oh-my-zsh` (or `$ZSH`) doesn't exist yet. The script runs unattended and never replaces an existing `~/.zshrc`. On a fresh Mac, with no `~/.zshrc`, you get the Oh My Zsh template. On a Mac that already has one, add the Oh My Zsh lines to it yourself (see `~/.oh-my-zsh/templates/minimal.zshrc`). Oh My Zsh updates itself, so re-running bootstrap doesn't upgrade it.
 
 On an already-bootstrapped machine you can also run just the playbook:
 

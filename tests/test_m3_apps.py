@@ -25,7 +25,7 @@ CLEAN_ENV = {"PATH": CLEAN_PATH}
 
 # Mirrors playbooks/site.yml (casks and formulas, in inventory order).
 INVENTORY_CASKS = ["1password", "iterm2", "visual-studio-code"]
-INVENTORY_FORMULAS = ["opencode", "emacs", "gh", "uv"]
+INVENTORY_FORMULAS = ["opencode", "emacs", "gh", "uv", "shellcheck"]
 
 
 def _require_ok(result):
@@ -38,9 +38,22 @@ def _apps_dir(stub_state):
     return d
 
 
-def _run(stub_state, apps, extra_vars=(), extra_env=None):
+def _omz_dir(stub_state, present=True):
+    d = stub_state.parent / "oh-my-zsh"
+    if present:
+        d.mkdir(exist_ok=True)
+    return d
+
+
+def _run(stub_state, apps, extra_vars=(), extra_env=None, omz_dir=None):
+    # Oh My Zsh defaults to present (a tmp dir), so tests about brew apps never
+    # reach its installer; the Oh My Zsh tests pass their own omz_dir.
+    omz = omz_dir if omz_dir is not None else _omz_dir(stub_state)
     return run_playbook(
-        PLAYBOOK, stub_state, extra_vars=(f"apps_dir={apps}", *extra_vars), extra_env=extra_env
+        PLAYBOOK,
+        stub_state,
+        extra_vars=(f"apps_dir={apps}", f"oh_my_zsh_dir={omz}", *extra_vars),
+        extra_env=extra_env,
     )
 
 
@@ -150,3 +163,56 @@ def test_brew_managed_present_app_is_upgraded_not_untouched(stub_state):
     assert set(scope) == set(INVENTORY_CASKS + INVENTORY_FORMULAS), (
         f"managed-but-present apps must stay in the upgrade set: {scope}"
     )
+
+
+OMZ_INSTALL_URL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
+
+
+def _fake_omz_installer(stub_state):
+    """A stand-in for Oh My Zsh's install.sh, served by the curl stub.
+
+    Records its args and $ZSH, then creates $ZSH like the real installer's clone.
+    """
+    record = stub_state / "omz-installer"
+    script = stub_state.parent / "fake-omz-installer.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        f"printf 'args=%s\\nZSH=%s\\n' \"$*\" \"$ZSH\" >> '{record}'\n"
+        "mkdir -p \"$ZSH\"\n"
+    )
+    return script, record
+
+
+def test_missing_oh_my_zsh_is_installed_once_via_official_script(stub_state):
+    apps = _apps_dir(stub_state)
+    omz = _omz_dir(stub_state, present=False)
+    installer, record = _fake_omz_installer(stub_state)
+    env = {**CLEAN_ENV, "FAKE_BREW_INSTALLER": str(installer)}
+    seed_state(stub_state)
+
+    _require_ok(_run(stub_state, apps, extra_env=env, omz_dir=omz))
+    calls = invocations(stub_state)
+
+    curl_calls = [c for c in calls if c.startswith("curl ")]
+    assert len(curl_calls) == 1 and OMZ_INSTALL_URL in curl_calls[0], f"installer fetch wrong: {curl_calls}"
+    lines = record.read_text().splitlines()
+    # Unattended (no chsh / no interactive zsh) and never clobber an existing ~/.zshrc.
+    assert lines == ["args=--unattended --keep-zshrc", f"ZSH={omz}"], f"installer invoked wrong: {lines}"
+    assert omz.is_dir(), "Oh My Zsh dir not created"
+
+    # Rerun: present now, so the installer must not run again.
+    seen = len(calls)
+    _require_ok(_run(stub_state, apps, extra_env=env, omz_dir=omz))
+    new_curl = [c for c in invocations(stub_state)[seen:] if c.startswith("curl ")]
+    assert not new_curl, f"present Oh My Zsh re-installed: {new_curl}"
+
+
+def test_present_oh_my_zsh_is_left_alone(stub_state):
+    apps = _apps_dir(stub_state)
+    omz = _omz_dir(stub_state, present=True)  # e.g. a manual install
+    seed_state(stub_state)
+
+    _require_ok(_run(stub_state, apps, extra_env=CLEAN_ENV, omz_dir=omz))
+    calls = invocations(stub_state)
+
+    assert not [c for c in calls if c.startswith("curl ")], f"present Oh My Zsh was reinstalled: {calls}"

@@ -27,8 +27,16 @@
       - name: emacs                # I am still an emacs person
       - name: gh
       - name: uv
+      - name: shellcheck           # `make check` lints this repo's shell with it
 
     apps_dir: /Applications        # cask presence-check dir (overridable in tests)
+
+    # Oh My Zsh is not in Homebrew: it installs with its own script into a git
+    # checkout. Present = that directory exists. Honors $ZSH like the installer
+    # does, else ~/.oh-my-zsh. It keeps itself current (built-in auto-update),
+    # so it stays out of the scoped brew upgrade.
+    oh_my_zsh_dir: "{{ lookup('env', 'ZSH') | default(lookup('env', 'HOME') ~ '/.oh-my-zsh', true) }}"
+    oh_my_zsh_install_url: https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
 
   tasks:
     - name: Detect casks already present (including manual installs)
@@ -87,3 +95,13 @@
     - name: Scoped upgrade of the brew-managed set (manual installs stay out — ADR-0001)
       ansible.builtin.command: "brew upgrade {{ ((casks | rejectattr('name', 'in', manual_casks) | map(attribute='name') | list) + (formulas | rejectattr('name', 'in', manual_formulas) | map(attribute='name') | list)) | join(' ') }}"
       when: ((casks | length - manual_casks | length) + (formulas | length - manual_formulas | length)) > 0
+
+    # --unattended: no chsh (macOS already defaults to zsh), no interactive zsh.
+    # --keep-zshrc: never replace an existing ~/.zshrc; a fresh Mac has none, so
+    # it gets the Oh My Zsh template. `creates` is the presence gate (ADR-0001).
+    - name: Install Oh My Zsh if not present
+      ansible.builtin.shell: sh -c "$(curl -fsSL {{ oh_my_zsh_install_url | quote }})" "" --unattended --keep-zshrc
+      args:
+        creates: "{{ oh_my_zsh_dir }}"
+      environment:
+        ZSH: "{{ oh_my_zsh_dir }}"

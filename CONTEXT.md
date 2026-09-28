@@ -5,7 +5,7 @@ Provisions a Mac to its desired configuration and keeps it there. Provisioning i
 ## Language
 
 **App**:
-Software this repo installs and manages on a Mac — GUI apps (casks) as well as CLI tools (formulas).
+Software this repo installs and manages on a Mac — GUI apps (casks) as well as CLI tools (formulas), plus the few that Homebrew doesn't carry and that install with their own script (Oh My Zsh).
 _Avoid_: package; cask/formula when the whole is meant
 
 **Present**:
