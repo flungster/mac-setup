@@ -15,7 +15,16 @@ the inventory cannot desync these tests.
 """
 import os
 
-from conftest import REPO_ROOT, STUBS_DIR, invocations, playbook_inventory, run_playbook, seed_state
+from conftest import (
+    REPO_ROOT,
+    STUBS_DIR,
+    invocations,
+    playbook_bin_casks,
+    playbook_inventory,
+    run_playbook,
+    seed_managed_matt_skills,
+    seed_state,
+)
 
 PLAYBOOK = REPO_ROOT / "playbooks" / "site.yml"
 # Deterministic PATH: stubs first, then only bare system dirs (no brew-managed
@@ -44,7 +53,7 @@ def _omz_dir(stub_state, present=True):
     return d
 
 
-def _run(stub_state, apps, extra_vars=(), extra_env=None, omz_dir=None):
+def _run(stub_state, apps, extra_vars=(), extra_env=None, omz_dir=None, seed_skills=True):
     # Oh My Zsh defaults to present (a tmp dir), so tests about brew apps never
     # reach its installer; the Oh My Zsh tests pass their own omz_dir.
     omz = omz_dir if omz_dir is not None else _omz_dir(stub_state)
@@ -53,7 +62,22 @@ def _run(stub_state, apps, extra_vars=(), extra_env=None, omz_dir=None):
         stub_state,
         extra_vars=(f"apps_dir={apps}", f"oh_my_zsh_dir={omz}", *extra_vars),
         extra_env=extra_env,
+        seed_skills=seed_skills,
     )
+
+
+def _fake_cli_bin(stub_state):
+    d = stub_state.parent / "cli-bin"
+    d.mkdir(exist_ok=True)
+    for name in playbook_bin_casks():
+        exe = d / name
+        if not exe.exists():
+            exe.write_text("#!/bin/sh\n", encoding="utf-8")
+        exe.chmod(0o755)
+    return d
+
+
+EMPTY_INVENTORY = ('{"casks": [], "formulas": []}',)
 
 
 def _recap_changed(result):
@@ -297,3 +321,130 @@ def test_oh_my_zsh_installer_download_failure_fails_run(stub_state):
 
     assert result.returncode != 0, f"run succeeded despite failed installer download:\n{result.stdout}"
     assert not omz.is_dir(), "Oh My Zsh dir created despite failed download"
+
+
+def test_manually_present_command_line_cask_is_left_alone(stub_state):
+    apps = _apps_dir(stub_state)
+    cli_bin = _fake_cli_bin(stub_state)  # claude/codex on PATH, invisible to brew
+    seed_state(stub_state)
+
+    _require_ok(
+        _run(
+            stub_state, apps,
+            extra_vars=['{"casks": [{"name": "claude-code", "bin": "claude"}], "formulas": []}'],
+            extra_env={"PATH": f"{cli_bin}{os.pathsep}{CLEAN_PATH}"},
+        )
+    )
+    calls = invocations(stub_state)
+
+    touched = [c for c in calls if "claude-code" in c and ("install" in c or "upgrade" in c)]
+    assert not touched, f"manually-present claude-code was touched: {touched}"
+
+
+def test_command_line_cask_rerun_does_not_reinstall_brew_managed(stub_state):
+    apps = _apps_dir(stub_state)
+    cli_bin = _fake_cli_bin(stub_state)  # present via PATH...
+    seed_state(stub_state, casks=["claude-code"])  # ...and brew-managed
+
+    _require_ok(
+        _run(
+            stub_state, apps,
+            extra_vars=['{"casks": [{"name": "claude-code", "bin": "claude"}], "formulas": []}'],
+            extra_env={"PATH": f"{cli_bin}{os.pathsep}{CLEAN_PATH}"},
+        )
+    )
+    calls = invocations(stub_state)
+
+    assert "brew install --cask claude-code" not in calls, f"present cask reinstalled: {calls}"
+
+
+def test_missing_matt_skills_are_installed_once_then_updated_on_rerun(stub_state):
+    apps = _apps_dir(stub_state)
+    seed_state(stub_state)
+
+    result = _run(stub_state, apps, extra_vars=EMPTY_INVENTORY, seed_skills=False)
+    _require_ok(result)
+    calls = invocations(stub_state)
+
+    adds = [c for c in calls if c.startswith("npx ") and " add " in c]
+    assert len(adds) == 1, f"skills installer ran {len(adds)} times: {calls}"
+    assert adds[0] == (
+        "npx -y skills@latest add mattpocock/skills --global"
+        " --skill * --agent codex --agent claude-code --yes"
+    ), f"unexpected skills install command: {adds[0]!r}"
+    assert not [c for c in calls if " update " in c], f"update ran immediately after install: {calls}"
+
+    home = stub_state.parent / "home"
+    assert (home / ".agents/skills/setup-matt-pocock-skills/SKILL.md").exists()
+    assert (home / ".claude/skills/setup-matt-pocock-skills/SKILL.md").exists()
+    assert (home / ".agents/.skill-lock.json").exists()
+
+    seen = len(invocations(stub_state))
+    result2 = _run(stub_state, apps, extra_vars=EMPTY_INVENTORY, seed_skills=False)
+    _require_ok(result2)
+    new_calls = invocations(stub_state)[seen:]
+
+    assert not [c for c in new_calls if " add " in c], f"rerun reinstalled skills: {new_calls}"
+    updates = [c for c in new_calls if c.startswith("npx ") and " update " in c]
+    assert len(updates) == 1, f"rerun did not update skills exactly once: {new_calls}"
+
+
+def test_present_matt_skills_without_lock_are_left_alone(stub_state):
+    # Markers but no installer lock = a manual install: ADR-0001 leaves it alone.
+    apps = _apps_dir(stub_state)
+    seed_state(stub_state)
+
+    _require_ok(_run(stub_state, apps, extra_vars=EMPTY_INVENTORY))  # default: markers only
+    calls = invocations(stub_state)
+
+    assert not [c for c in calls if c.startswith("npx ")], f"manual skills were touched: {calls}"
+
+
+def test_managed_matt_skills_update_reports_no_change_when_current(stub_state):
+    apps = _apps_dir(stub_state)
+    seed_state(stub_state)
+    home = stub_state.parent / "managed-skills-home"
+    seed_managed_matt_skills(home)
+
+    result = _run(
+        stub_state, apps, extra_vars=EMPTY_INVENTORY,
+        extra_env={"HOME": str(home)}, seed_skills=False,
+    )
+    _require_ok(result)
+    calls = invocations(stub_state)
+
+    assert not [c for c in calls if " add " in c], f"managed skills were reinstalled: {calls}"
+    updates = [c for c in calls if " update " in c]
+    assert len(updates) == 1, f"managed skills were not updated exactly once: {calls}"
+    assert _recap_changed(result) == 0, f"current skills update reported a change:\n{result.stdout}"
+
+
+def test_managed_matt_skills_update_reports_change_when_updated(stub_state):
+    apps = _apps_dir(stub_state)
+    home = stub_state.parent / "managed-skills-home"
+    seed_managed_matt_skills(home)
+    seed_state(stub_state, extra={"skills.outdated": "1"})
+
+    result = _run(
+        stub_state, apps, extra_vars=EMPTY_INVENTORY,
+        extra_env={"HOME": str(home)}, seed_skills=False,
+    )
+    _require_ok(result)
+    calls = invocations(stub_state)
+
+    updates = [c for c in calls if " update " in c]
+    assert len(updates) == 1, f"managed skills were not updated: {calls}"
+    assert _recap_changed(result) == 1, f"skills update did not report a change:\n{result.stdout}"
+
+
+def test_matt_skills_installer_failure_fails_run(stub_state):
+    apps = _apps_dir(stub_state)
+    seed_state(stub_state, extra={"skills.fail": "1"})
+
+    result = _run(stub_state, apps, extra_vars=EMPTY_INVENTORY, seed_skills=False)
+
+    assert result.returncode != 0, f"run succeeded despite failed skills installer:\n{result.stdout}"
+    home = stub_state.parent / "home"
+    assert not (home / ".agents/skills/setup-matt-pocock-skills/SKILL.md").exists(), (
+        "partial skills install left behind"
+    )

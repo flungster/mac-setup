@@ -36,6 +36,48 @@ def playbook_inventory():
     return casks, formulas
 
 
+def playbook_bin_casks():
+    """Command names for command-line-only casks (bin: entries) in playbooks/site.yml."""
+    import yaml
+
+    with open(REPO_ROOT / "playbooks" / "site.yml", encoding="utf-8") as f:
+        play = yaml.safe_load(f)[0]
+    return [c["bin"] for c in play["vars"]["casks"] if isinstance(c, dict) and "bin" in c]
+
+
+MATT_SKILL_MARKER_RELPATHS = (
+    ".agents/skills/setup-matt-pocock-skills/SKILL.md",
+    ".claude/skills/setup-matt-pocock-skills/SKILL.md",
+)
+MATT_SKILLS_LOCK_RELPATH = ".agents/.skill-lock.json"
+
+
+def seed_matt_skill_markers(home):
+    """Create the Matt Pocock presence markers only (a manual/present install)."""
+    home = pathlib.Path(home)
+    for rel in MATT_SKILL_MARKER_RELPATHS:
+        p = home / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if not p.exists():
+            p.write_text(
+                "---\nname: setup-matt-pocock-skills\ndescription: stub marker\n---\nstub skill\n",
+                encoding="utf-8",
+            )
+
+
+def seed_managed_matt_skills(home):
+    """Create the Matt Pocock markers plus an installer lock (a managed install)."""
+    seed_matt_skill_markers(home)
+    home = pathlib.Path(home)
+    lock = home / MATT_SKILLS_LOCK_RELPATH
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    if not lock.exists():
+        lock.write_text(
+            '{"version":3,"skills":{"setup-matt-pocock-skills":{"source":"mattpocock/skills"}}}\n',
+            encoding="utf-8",
+        )
+
+
 def seed_state(state_dir, casks=(), formulas=None, outdated_formulas=(), extra=None):
     lines = []
     for c in casks:
@@ -49,7 +91,7 @@ def seed_state(state_dir, casks=(), formulas=None, outdated_formulas=(), extra=N
     (state_dir / "state.env").write_text("\n".join(lines) + ("\n" if lines else ""))
 
 
-def run_playbook(playbook, state_dir, extra_vars=(), extra_env=None):
+def run_playbook(playbook, state_dir, extra_vars=(), extra_env=None, seed_skills=True):
     env = dict(os.environ)
     b = venv_bin()
     env["PATH"] = f"{STUBS_DIR}{os.pathsep}{b}{os.pathsep}{env.get('PATH', '')}"
@@ -58,6 +100,16 @@ def run_playbook(playbook, state_dir, extra_vars=(), extra_env=None):
     env["ANSIBLE_DEPRECATION_WARNINGS"] = "False"
     # homebrew_path="" disables the modules' hardcoded /usr/local:/opt/homebrew
     # search dirs (they take precedence over PATH), so the stubs in STUBS_DIR win.
+    extra_env = dict(extra_env or {})
+    # Isolate $HOME so the playbook's skill checks never see the host machine. By
+    # default skills count as present (markers only, no lock): unrelated playbook
+    # tests stay focused and report changed=0. Pass seed_skills=False for an empty
+    # HOME, or extra_env={"HOME": ...} to control the directory yourself.
+    home = pathlib.Path(extra_env.get("HOME") or (state_dir.parent / "home"))
+    home.mkdir(parents=True, exist_ok=True)
+    if seed_skills and "HOME" not in extra_env:
+        seed_matt_skill_markers(home)
+    env["HOME"] = str(home)
     if extra_env:
         env.update(extra_env)
     cmd = [str(b / "ansible-playbook"), "-i", "localhost,", str(playbook), "-e", 'homebrew_path=""']
@@ -127,10 +179,17 @@ def bootstrap(tmp_path):
 
     env = dict(os.environ)
     b = venv_bin()
-    # Hermetic PATH: stubs + test venv + bare system dirs only, so no host
-    # brew-managed tools can leak into the playbook's presence checks (same
-    # approach as the M3 tests). Ansible's tmp setup needs /bin.
-    env["PATH"] = f"{STUBS_DIR}{os.pathsep}{b}{os.pathsep}/usr/bin{os.pathsep}/bin"
+    # Command-line casks (bin: entries in playbooks/site.yml) are presence-checked
+    # on PATH. Plant them here so M2's bootstrap-focused tests treat the inventory
+    # as already present, like its seeded brew state. Stubs + test venv + bare
+    # system dirs only, so no host brew-managed tools can leak into checks.
+    cli_bin = tmp_path / "cli-bin"
+    cli_bin.mkdir()
+    for name in playbook_bin_casks():
+        exe = cli_bin / name
+        exe.write_text("#!/bin/sh\n", encoding="utf-8")
+        exe.chmod(0o755)
+    env["PATH"] = f"{STUBS_DIR}{os.pathsep}{cli_bin}{os.pathsep}{b}{os.pathsep}/usr/bin{os.pathsep}/bin"
     env["STUB_STATE_DIR"] = str(state_dir)
     env["HOMEBREW_PREFIX"] = str(prefix)
     env["FAKE_BREW_INSTALLER"] = str(installer)
@@ -140,9 +199,11 @@ def bootstrap(tmp_path):
     omz.mkdir()
     env["ZSH"] = str(omz)
     # Isolate $HOME: bootstrap appends a brew shellenv line to ~/.zprofile,
-    # which must never touch the real one.
+    # which must never touch the real one. Markers only (no lock) keep M2 focused
+    # on bootstrap: the playbook sees the skills as a manual install and leaves them alone.
     home = tmp_path / "home"
     home.mkdir()
+    seed_matt_skill_markers(home)
     env["HOME"] = str(home)
     # Empty cask presence dir: the host's real /Applications must not leak into
     # the playbook run that bootstrap drives.

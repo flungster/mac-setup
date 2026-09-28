@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Stub npx for offline playbook tests. Implements only the `skills` CLI calls used
+# by playbooks/site.yml; any other subcommand exits non-zero on purpose.
+
+STUB_TOOL="npx"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+sub=""
+for a in "$@"; do
+  case "$a" in
+    add | update) sub="$a"; break ;;
+  esac
+done
+
+stub_log "$*"
+
+if [ -z "$sub" ]; then
+  echo "stub npx: unhandled invocation: $*" >&2
+  exit 1
+fi
+
+if [ "$(stub_get skills.fail)" = "1" ]; then
+  echo "stub npx: forced failure for $sub" >&2
+  exit 1
+fi
+
+home="${HOME:?stub npx requires HOME}"
+
+case "$sub" in
+  add)
+    agents_dir="$home/.agents/skills/setup-matt-pocock-skills"
+    claude_dir="$home/.claude/skills/setup-matt-pocock-skills"
+    mkdir -p "$agents_dir" "$claude_dir"
+    for dir in "$agents_dir" "$claude_dir"; do
+      printf -- '---\nname: setup-matt-pocock-skills\ndescription: stub marker\n---\nstub skill\n' >"$dir/SKILL.md"
+    done
+    printf '{"version":3,"skills":{"setup-matt-pocock-skills":{"source":"mattpocock/skills","updatedAt":"%s"}}}\n' \
+      "${RANDOM}${SECONDS}" >"$home/.agents/.skill-lock.json"
+    ;;
+  update)
+    lock="$home/.agents/.skill-lock.json"
+    if [ -n "$(stub_get skills.outdated)" ]; then
+      printf '{"version":3,"skills":{"setup-matt-pocock-skills":{"source":"mattpocock/skills","updatedAt":"%s"}}}\n' \
+        "${RANDOM}${SECONDS}" >"$lock"
+      stub_set skills.outdated ""
+    fi
+    ;;
+esac
+
+exit 0

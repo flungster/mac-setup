@@ -137,6 +137,7 @@ main() {
   add_brew_to_zprofile
   ensure_ansible
   run_playbook
+  log "one-time follow-ups: sign in with 'claude' and 'codex login'; run /setup-matt-pocock-skills once in each repo"
   log "done"
 }
 
