@@ -19,13 +19,13 @@ case "$sub" in
     fi
     ;;
 
-  -license) # bootstrap.sh probes `xcodebuild -license status`, accepts with sudo
+  -license) # bootstrap.sh probes `xcodebuild -license check`, accepts with sudo
     stub_log "-license $*"
     if [ -z "$(stub_get xcode_version)" ]; then
       echo "error: Xcode not installed (stub)" >&2
       exit 1
     fi
-    if [ "${1:-}" = "status" ]; then
+    if [ "${1:-}" = "check" ]; then
       if [ -n "$(stub_get xcode_license_accepted)" ]; then
         echo "license has been agreed"
       else

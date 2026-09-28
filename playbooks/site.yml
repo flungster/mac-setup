@@ -34,9 +34,12 @@
     # Oh My Zsh is not in Homebrew: it installs with its own script into a git
     # checkout. Present = that directory exists. Honors $ZSH like the installer
     # does, else ~/.oh-my-zsh. It keeps itself current (built-in auto-update),
-    # so it stays out of the scoped brew upgrade.
+    # so it stays out of the scoped brew upgrade. The installer is fetched with
+    # get_url (not `curl` in a shell) so a failed download fails the run instead
+    # of sh-ing an empty script. URL is overridable for tests (file://...).
     oh_my_zsh_dir: "{{ lookup('env', 'ZSH') | default(lookup('env', 'HOME') ~ '/.oh-my-zsh', true) }}"
     oh_my_zsh_install_url: https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
+    oh_my_zsh_installer: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) }}/oh-my-zsh-install.sh"
 
   tasks:
     - name: Detect casks already present (including manual installs)
@@ -96,11 +99,21 @@
       ansible.builtin.command: "brew upgrade {{ ((casks | rejectattr('name', 'in', manual_casks) | map(attribute='name') | list) + (formulas | rejectattr('name', 'in', manual_formulas) | map(attribute='name') | list)) | join(' ') }}"
       when: ((casks | length - manual_casks | length) + (formulas | length - manual_formulas | length)) > 0
 
+    - name: Check whether Oh My Zsh is present (ADR-0001)
+      ansible.builtin.stat: path="{{ oh_my_zsh_dir }}"
+      register: omz_present
+
+    - name: Fetch the Oh My Zsh installer (only when missing)
+      ansible.builtin.get_url:
+        url: "{{ oh_my_zsh_install_url }}"
+        dest: "{{ oh_my_zsh_installer }}"
+      when: not omz_present.stat.exists
+
     # --unattended: no chsh (macOS already defaults to zsh), no interactive zsh.
     # --keep-zshrc: never replace an existing ~/.zshrc; a fresh Mac has none, so
-    # it gets the Oh My Zsh template. `creates` is the presence gate (ADR-0001).
+    # it gets the Oh My Zsh template. `creates` is a second presence gate (ADR-0001).
     - name: Install Oh My Zsh if not present
-      ansible.builtin.shell: sh -c "$(curl -fsSL {{ oh_my_zsh_install_url | quote }})" "" --unattended --keep-zshrc
+      ansible.builtin.shell: sh {{ oh_my_zsh_installer | quote }} --unattended --keep-zshrc
       args:
         creates: "{{ oh_my_zsh_dir }}"
       environment:

@@ -9,9 +9,16 @@ source "$(dirname "$0")/_stub_state.sh"
 
 stub_log "$@"
 
-url="" a
+# Parse args: the first http(s) URL, and an output file if -o/--output was given
+# (bootstrap downloads the Homebrew installer with `curl ... -o <tmpfile>`).
+url="" out_file="" want_out=0 a
 for a in "$@"; do
-  case "$a" in http://* | https://*) url="$a"; break ;; esac
+  if [ "$want_out" -eq 1 ]; then out_file="$a"; want_out=0; continue; fi
+  case "$a" in
+    -o) want_out=1 ;;
+    --output=?*) out_file="${a#--output=}" ;;
+    http://* | https://*) url="$a" ;;
+  esac
 done
 
 if [ -z "$url" ]; then
@@ -24,5 +31,5 @@ if [ -z "${FAKE_BREW_INSTALLER:-}" ] || [ ! -f "$FAKE_BREW_INSTALLER" ]; then
   exit 1
 fi
 
-cat "$FAKE_BREW_INSTALLER"
+if [ -n "$out_file" ]; then cat "$FAKE_BREW_INSTALLER" >"$out_file"; else cat "$FAKE_BREW_INSTALLER"; fi
 exit 0

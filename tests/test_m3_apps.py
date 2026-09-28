@@ -165,16 +165,14 @@ def test_brew_managed_present_app_is_upgraded_not_untouched(stub_state):
     )
 
 
-OMZ_INSTALL_URL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
-
-
 def _fake_omz_installer(stub_state):
-    """A stand-in for Oh My Zsh's install.sh, served by the curl stub.
+    """A stand-in for Oh My Zsh's install.sh, fetched via file:// in tests.
 
     Records its args and $ZSH, then creates $ZSH like the real installer's clone.
+    Returns (script_path, record_file).
     """
     record = stub_state / "omz-installer"
-    script = stub_state.parent / "fake-omz-installer.sh"
+    script = stub_state.parent / "fake-omz-install.sh"
     script.write_text(
         "#!/bin/sh\n"
         f"printf 'args=%s\\nZSH=%s\\n' \"$*\" \"$ZSH\" >> '{record}'\n"
@@ -187,32 +185,48 @@ def test_missing_oh_my_zsh_is_installed_once_via_official_script(stub_state):
     apps = _apps_dir(stub_state)
     omz = _omz_dir(stub_state, present=False)
     installer, record = _fake_omz_installer(stub_state)
-    env = {**CLEAN_ENV, "FAKE_BREW_INSTALLER": str(installer)}
     seed_state(stub_state)
 
-    _require_ok(_run(stub_state, apps, extra_env=env, omz_dir=omz))
-    calls = invocations(stub_state)
+    _require_ok(
+        _run(stub_state, apps, extra_env=CLEAN_ENV, omz_dir=omz,
+             extra_vars=(f"oh_my_zsh_install_url=file://{installer}",))
+    )
 
-    curl_calls = [c for c in calls if c.startswith("curl ")]
-    assert len(curl_calls) == 1 and OMZ_INSTALL_URL in curl_calls[0], f"installer fetch wrong: {curl_calls}"
-    lines = record.read_text().splitlines()
     # Unattended (no chsh / no interactive zsh) and never clobber an existing ~/.zshrc.
-    assert lines == ["args=--unattended --keep-zshrc", f"ZSH={omz}"], f"installer invoked wrong: {lines}"
+    assert record.read_text().splitlines() == ["args=--unattended --keep-zshrc", f"ZSH={omz}"], (
+        f"installer invoked wrong: {record.read_text()!r}"
+    )
     assert omz.is_dir(), "Oh My Zsh dir not created"
 
     # Rerun: present now, so the installer must not run again.
-    seen = len(calls)
-    _require_ok(_run(stub_state, apps, extra_env=env, omz_dir=omz))
-    new_curl = [c for c in invocations(stub_state)[seen:] if c.startswith("curl ")]
-    assert not new_curl, f"present Oh My Zsh re-installed: {new_curl}"
+    _require_ok(
+        _run(stub_state, apps, extra_env=CLEAN_ENV, omz_dir=omz,
+             extra_vars=(f"oh_my_zsh_install_url=file://{installer}",))
+    )
+    assert record.read_text().count("\n") == 2, f"present Oh My Zsh re-installed: {record.read_text()!r}"
 
 
 def test_present_oh_my_zsh_is_left_alone(stub_state):
     apps = _apps_dir(stub_state)
     omz = _omz_dir(stub_state, present=True)  # e.g. a manual install
+    _, record = _fake_omz_installer(stub_state)
     seed_state(stub_state)
 
     _require_ok(_run(stub_state, apps, extra_env=CLEAN_ENV, omz_dir=omz))
-    calls = invocations(stub_state)
 
-    assert not [c for c in calls if c.startswith("curl ")], f"present Oh My Zsh was reinstalled: {calls}"
+    assert not record.exists(), f"present Oh My Zsh was reinstalled: {record.read_text()!r}"
+
+
+def test_oh_my_zsh_installer_download_failure_fails_run(stub_state):
+    # A failed installer download must fail the run, not leave a half-setup machine.
+    apps = _apps_dir(stub_state)
+    omz = _omz_dir(stub_state, present=False)
+    seed_state(stub_state)
+
+    result = _run(
+        stub_state, apps, extra_env=CLEAN_ENV, omz_dir=omz,
+        extra_vars=("oh_my_zsh_install_url=file:///nonexistent/oh-my-zsh-install.sh",),
+    )
+
+    assert result.returncode != 0, f"run succeeded despite failed installer download:\n{result.stdout}"
+    assert not omz.is_dir(), "Oh My Zsh dir created despite failed download"

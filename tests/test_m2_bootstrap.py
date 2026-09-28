@@ -132,9 +132,9 @@ def test_unaccepted_xcode_license_is_accepted_before_brew(bootstrap):
     _require_ok(result)
 
     calls = invocations(bootstrap.state_dir)
-    assert "xcodebuild -license status" in calls, f"license not probed: {calls}"
+    assert "xcodebuild -license check" in calls, f"license not probed: {calls}"
     assert "sudo xcodebuild -license accept" in calls, f"unaccepted license not accepted: {calls}"
-    assert calls.index("xcodebuild -license status") < calls.index("sudo xcodebuild -license accept"), (
+    assert calls.index("xcodebuild -license check") < calls.index("sudo xcodebuild -license accept"), (
         f"accept ran before the probe: {calls}"
     )
     brew_calls = [c for c in calls if c.startswith("brew ")]
@@ -159,5 +159,67 @@ def test_accepted_xcode_license_is_not_reaccepted(bootstrap):
     _require_ok(result)
 
     calls = invocations(bootstrap.state_dir)
-    assert "xcodebuild -license status" in calls, f"license not probed: {calls}"
+    assert "xcodebuild -license check" in calls, f"license not probed: {calls}"
     assert "sudo xcodebuild -license accept" not in calls, f"already-accepted license re-accepted: {calls}"
+
+
+def test_homebrew_downloader_failure_aborts(bootstrap):
+    # A failed download must fail the run, not silently install nothing: with
+    # `bash -c "$(curl ...)"` a dead network runs an empty script and exits 0.
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"}, extra={"clt": 1})
+    missing = bootstrap.state_dir / "no-such-installer"
+
+    result = bootstrap.run(extra_env={"FAKE_BREW_INSTALLER": str(missing)})
+
+    assert result.returncode != 0, f"bootstrap succeeded despite failed download:\n{result.stdout}\n{result.stderr}"
+    assert "could not download Homebrew installer" in result.stderr, f"no clear error: {result.stderr}"
+    assert not (bootstrap.prefix / "bin" / "brew").exists(), "partial install left behind: brew was planted"
+
+
+def test_clt_install_is_waited_for(bootstrap):
+    # The CLT install is user-driven and asynchronous: bootstrap must keep
+    # polling until it finishes, not race the Homebrew installer into a second install.
+    bootstrap.install_brew()
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"})
+
+    result = bootstrap.run(extra_env={"CLT_PENDING_POLLS": "2", "CLT_POLL_INTERVAL": "0"})
+    _require_ok(result)
+
+    calls = invocations(bootstrap.state_dir)
+    assert calls.count("xcode-select --install") == 1, f"CLT install triggered more than once: {calls}"
+    # Pre-check + two polls inside the wait loop (+ one more from the Xcode license step).
+    assert calls.count("xcode-select -p") >= 3, f"bootstrap did not wait for the CLT install: {calls}"
+
+
+def test_clt_install_timeout_fails(bootstrap):
+    bootstrap.install_brew()
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"})
+
+    # 10000 polls can't finish within the 2s timeout even at ~ms per poll.
+    result = bootstrap.run(
+        extra_env={"CLT_PENDING_POLLS": "10000", "CLT_POLL_INTERVAL": "0", "CLT_WAIT_SECONDS": "2"}
+    )
+
+    assert result.returncode != 0, f"bootstrap succeeded although the CLT install never finished:\n{result.stderr}"
+    assert "did not finish within" in result.stderr, f"no timeout message: {result.stderr}"
+    assert invocations(bootstrap.state_dir).count("xcode-select --install") == 1, "CLT install was retried"
+
+
+def test_brew_shellenv_added_to_zprofile_once(bootstrap):
+    # Fresh terminals must find brew: bootstrap appends the shellenv line to
+    # ~/.zprofile, exactly once (re-runs are the update path).
+    bootstrap.install_brew()
+    seed_state(bootstrap.state_dir, casks=INVENTORY_CASKS, formulas={**INVENTORY_FORMULAS, "ansible": "9.0.0"}, extra={"clt": 1})
+
+    _require_ok(bootstrap.run())
+    zprofile = bootstrap.env["HOME"] + "/.zprofile"
+    line = f'eval "$({bootstrap.prefix}/bin/brew shellenv)"'
+
+    def zprofile_lines():
+        with open(zprofile, encoding="utf-8") as f:
+            return [l.rstrip("\n") for l in f]
+
+    assert zprofile_lines().count(line) == 1, f"brew shellenv line not added exactly once: {zprofile_lines()}"
+
+    _require_ok(bootstrap.run())
+    assert zprofile_lines().count(line) == 1, f"re-run duplicated the brew shellenv line: {zprofile_lines()}"

@@ -9,6 +9,19 @@ sub="${1:-}"
 case "$sub" in
   -p)
     stub_log "-p"
+    # A real CLT install completes in the background (user-driven dialog): after
+    # --install, -p keeps failing until CLT_PENDING_POLLS (default 1) further
+    # checks pass, then CLT counts as installed. This lets tests exercise the
+    # wait loop in bootstrap.sh without real delays (pair with CLT_POLL_INTERVAL=0).
+    pending="$(stub_get clt_pending)"
+    if [ -n "$pending" ]; then
+      if [ "$pending" -le 1 ]; then
+        stub_set clt_pending ""
+        stub_set clt 1
+      else
+        stub_set clt_pending "$((pending - 1))"
+      fi
+    fi
     if [ -n "$(stub_get xcode_version)" ]; then
       echo "/Applications/Xcode.app/Contents/Developer"
     elif [ -n "$(stub_get clt)" ]; then
@@ -21,7 +34,7 @@ case "$sub" in
 
   --install)
     stub_log "--install"
-    stub_set clt 1
+    if [ -z "$(stub_get clt_pending)" ]; then stub_set clt_pending "${CLT_PENDING_POLLS:-1}"; fi
     echo "Installing Command Line Tools (stub)"
     ;;
 

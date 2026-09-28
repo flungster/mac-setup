@@ -28,7 +28,21 @@ ensure_command_line_tools() {
     log "Command Line Tools: present ($(xcode-select -p))"
   else
     log "Command Line Tools missing: requesting install (a system dialog may appear)"
-    xcode-select --install
+    xcode-select --install || return 1
+    # The install is user-driven (a dialog) and takes minutes. Wait for it to
+    # finish: otherwise the Homebrew installer below sees missing CLT and starts
+    # its own install in parallel. Intervals/timeout are env-overridable for tests.
+    local wait_s="${CLT_WAIT_SECONDS:-1800}" poll_s="${CLT_POLL_INTERVAL:-5}" start=$SECONDS
+    while ! xcode-select -p >/dev/null 2>&1; do
+      if [ $((SECONDS - start)) -ge "$wait_s" ]; then
+        log "error: Command Line Tools install did not finish within ${wait_s}s"
+        log "(finish the dialog, or install from Software Update > General; then re-run ./bootstrap.sh)"
+        return 1
+      fi
+      log "waiting for Command Line Tools install to complete..."
+      sleep "$poll_s"
+    done
+    log "Command Line Tools: installed ($(xcode-select -p))"
   fi
 }
 
@@ -42,7 +56,7 @@ ensure_xcode_license() {
   case "$devdir" in
     /Library/Developer/*) log "CLT active: no Xcode license gate"; return 0 ;;
   esac
-  if xcodebuild -license status >/dev/null 2>&1; then
+  if xcodebuild -license check >/dev/null 2>&1; then
     log "Xcode license: accepted"
     return 0
   fi
@@ -58,11 +72,40 @@ ensure_homebrew() {
     # session has no cached sudo credentials — even for an administrator. Interactive,
     # the installer asks for the password in place (like every other step here).
     log "Homebrew not found at $HOMEBREW_PREFIX: installing from official script (will ask for your password)"
-    /bin/bash -c "$(curl -fsSL "$BREW_INSTALL_URL")"
+    # Download to a file, then run it: `bash -c "$(curl ...)"` would run an empty
+    # script and exit 0 if the download failed, so a bad network looked like success.
+    local installer_tmp
+    if ! installer_tmp="$(mktemp)"; then log "error: mktemp failed"; return 1; fi
+    if ! curl -fsSL "$BREW_INSTALL_URL" -o "$installer_tmp"; then
+      rm -f "$installer_tmp"
+      log "error: could not download Homebrew installer from $BREW_INSTALL_URL (check your network)"
+      return 1
+    fi
+    if ! /bin/bash "$installer_tmp"; then
+      rm -f "$installer_tmp"
+      log "error: Homebrew installer failed (see output above)"
+      return 1
+    fi
+    rm -f "$installer_tmp"
   else
     log "Homebrew found: $("$brew" --version | head -n1)"
   fi
   eval "$("$HOMEBREW_PREFIX/bin/brew" shellenv)"
+}
+
+# New terminals only know about brew if the shell env is loaded at login. The
+# official installer suggests this snippet; we add it (idempotently) so a fresh
+# Mac is done after one run. Skipped when an equivalent line already exists —
+# e.g. added by the Homebrew installer or a previous run of this script.
+add_brew_to_zprofile() {
+  local zprofile="$HOME/.zprofile" marker="# Added by mac-setup bootstrap (brew shellenv)"
+  local line="eval \"\$($HOMEBREW_PREFIX/bin/brew shellenv)\""
+  if [ -f "$zprofile" ] && grep -Fqx -- "$line" "$zprofile"; then
+    log "$zprofile already sources brew shellenv: leaving it alone"
+  else
+    printf '\n%s\n%s\n' "$marker" "$line" >>"$zprofile"
+    log "added brew shellenv to $zprofile (new terminals will find brew)"
+  fi
 }
 
 ensure_ansible() {
@@ -91,6 +134,7 @@ main() {
   ensure_command_line_tools
   ensure_xcode_license
   ensure_homebrew
+  add_brew_to_zprofile
   ensure_ansible
   run_playbook
   log "done"

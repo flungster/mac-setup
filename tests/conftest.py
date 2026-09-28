@@ -121,6 +121,11 @@ def bootstrap(tmp_path):
     omz = tmp_path / "oh-my-zsh"
     omz.mkdir()
     env["ZSH"] = str(omz)
+    # Isolate $HOME: bootstrap appends a brew shellenv line to ~/.zprofile,
+    # which must never touch the real one.
+    home = tmp_path / "home"
+    home.mkdir()
+    env["HOME"] = str(home)
     # bootstrap.sh runs playbooks/site.yml when present: give its ansible the
     # same interpreter and warning settings as run_playbook.
     env["ANSIBLE_PYTHON_INTERPRETER"] = str(b / "python")
