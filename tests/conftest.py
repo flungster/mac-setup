@@ -21,6 +21,21 @@ def venv_bin() -> pathlib.Path:
     return b
 
 
+def playbook_inventory():
+    """(cask names, formula names) from playbooks/site.yml — the single source of truth.
+
+    Tests must not carry their own copy of the inventory: adding an app there
+    would silently desync from these lists. PyYAML ships with ansible-core.
+    """
+    import yaml
+
+    with open(REPO_ROOT / "playbooks" / "site.yml", encoding="utf-8") as f:
+        play = yaml.safe_load(f)[0]
+    casks = [c["name"] for c in play["vars"]["casks"]]
+    formulas = [(x if isinstance(x, str) else x["name"]) for x in play["vars"]["formulas"]]
+    return casks, formulas
+
+
 def seed_state(state_dir, casks=(), formulas=None, outdated_formulas=(), extra=None):
     lines = []
     for c in casks:
@@ -112,7 +127,10 @@ def bootstrap(tmp_path):
 
     env = dict(os.environ)
     b = venv_bin()
-    env["PATH"] = f"{STUBS_DIR}{os.pathsep}{b}{os.pathsep}{env.get('PATH', '')}"
+    # Hermetic PATH: stubs + test venv + bare system dirs only, so no host
+    # brew-managed tools can leak into the playbook's presence checks (same
+    # approach as the M3 tests). Ansible's tmp setup needs /bin.
+    env["PATH"] = f"{STUBS_DIR}{os.pathsep}{b}{os.pathsep}/usr/bin{os.pathsep}/bin"
     env["STUB_STATE_DIR"] = str(state_dir)
     env["HOMEBREW_PREFIX"] = str(prefix)
     env["FAKE_BREW_INSTALLER"] = str(installer)
@@ -126,6 +144,11 @@ def bootstrap(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     env["HOME"] = str(home)
+    # Empty cask presence dir: the host's real /Applications must not leak into
+    # the playbook run that bootstrap drives.
+    apps = tmp_path / "apps"
+    apps.mkdir()
+    env["APPS_DIR"] = str(apps)
     # bootstrap.sh runs playbooks/site.yml when present: give its ansible the
     # same interpreter and warning settings as run_playbook.
     env["ANSIBLE_PYTHON_INTERPRETER"] = str(b / "python")

@@ -98,8 +98,22 @@ case "$sub" in
     done
     ;;
 
-  outdated)
-    stub_log "outdated $*" # nothing is ever outdated in the stub; empty output
+  outdated) # `brew outdated [--cask|--formula] [names...]`: list the given
+    kind="" names=() a2=""
+    for a2 in "$@"; do
+      case "$a2" in
+        --cask) kind="cask" ;;
+        --formula | --formulae) kind="formula" ;;
+        -*) : ;;
+        *) names+=("$a2") ;;
+      esac
+    done
+    stub_log "outdated $*"
+    for n in "${names[@]}"; do
+      if [ -n "$(stub_get "$kind.$n")" ] && [ -n "$(stub_get "$kind.$n.outdated")" ]; then
+        printf '%s\n' "$n"
+      fi
+    done
     ;;
 
   shellenv)

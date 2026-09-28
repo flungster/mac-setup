@@ -10,12 +10,12 @@ Tests run with a clean PATH (stubs + bare system dirs) so formula presence
 matter what the host machine has installed.
 
 The default-inventory tests assert against playbooks/site.yml's full cask and
-formula list: when you grow the inventory, update those assertions here (and
-the M2 seed in tests/test_m2_bootstrap.py).
+formula list — loaded from the playbook itself (INVENTORY_* below), so growing
+the inventory cannot desync these tests.
 """
 import os
 
-from conftest import REPO_ROOT, STUBS_DIR, invocations, run_playbook, seed_state
+from conftest import REPO_ROOT, STUBS_DIR, invocations, playbook_inventory, run_playbook, seed_state
 
 PLAYBOOK = REPO_ROOT / "playbooks" / "site.yml"
 # Deterministic PATH: stubs first, then only bare system dirs (no brew-managed
@@ -23,9 +23,8 @@ PLAYBOOK = REPO_ROOT / "playbooks" / "site.yml"
 CLEAN_PATH = f"{STUBS_DIR}{os.pathsep}/usr/bin{os.pathsep}/bin"
 CLEAN_ENV = {"PATH": CLEAN_PATH}
 
-# Mirrors playbooks/site.yml (casks and formulas, in inventory order).
-INVENTORY_CASKS = ["1password", "iterm2", "visual-studio-code"]
-INVENTORY_FORMULAS = ["opencode", "emacs", "gh", "uv", "shellcheck"]
+# From playbooks/site.yml (casks and formulas, in inventory order).
+INVENTORY_CASKS, INVENTORY_FORMULAS = playbook_inventory()
 
 
 def _require_ok(result):
@@ -57,7 +56,15 @@ def _run(stub_state, apps, extra_vars=(), extra_env=None, omz_dir=None):
     )
 
 
-def test_fresh_machine_installs_full_inventory_and_upgrades_it(stub_state):
+def _recap_changed(result):
+    import re
+
+    m = re.search(r"changed=(\d+)", result.stdout)
+    assert m, f"no PLAY RECAP in output:\n{result.stdout}"
+    return int(m.group(1))
+
+
+def test_fresh_machine_installs_full_inventory(stub_state):
     apps = _apps_dir(stub_state)  # empty: nothing manual either
     seed_state(stub_state)
 
@@ -68,10 +75,8 @@ def test_fresh_machine_installs_full_inventory_and_upgrades_it(stub_state):
         assert f"brew install --cask {c}" in calls, f"cask was not installed; saw: {calls}"
     for f in INVENTORY_FORMULAS:
         assert f"brew install {f}" in calls, f"formula was not installed; saw: {calls}"
-    upgrades = [c for c in calls if c.startswith("brew upgrade")]
-    assert len(upgrades) == 1 and upgrades[0].split()[2:] == INVENTORY_CASKS + INVENTORY_FORMULAS, (
-        f"scoped upgrade wrong: {upgrades}"
-    )
+    # Everything is freshly at latest, so brew has nothing to upgrade.
+    assert not [c for c in calls if c.startswith("brew upgrade")], f"unexpected upgrade: {calls}"
 
 
 def test_manually_present_cask_is_left_alone(stub_state):
@@ -118,9 +123,37 @@ def test_manually_present_formula_is_left_alone(stub_state):
 
     assert "brew install fakecli" in calls, f"missing formula not installed: {calls}"
     assert "brew install rustc" not in calls, f"manually-present formula was installed: {calls}"
+    # fakecli is freshly at latest, so there is nothing to upgrade. (Scope
+    # exclusion of the manual rustc from upgrades has its own test below.)
+    assert not [c for c in calls if c.startswith("brew upgrade")], f"unexpected upgrade: {calls}"
+
+
+def test_manual_install_stays_out_of_upgrade_scope(stub_state):
+    # rustc: on PATH but not brew-managed (manual) — must stay out of the
+    # upgrade scope. fakecli: brew-managed AND outdated — must be upgraded.
+    apps = _apps_dir(stub_state)
+    fake_bin = stub_state.parent / "bin"
+    fake_bin.mkdir(exist_ok=True)
+    (fake_bin / "rustc").write_text("#!/bin/sh\n")  # manually installed tool, on PATH
+    (fake_bin / "rustc").chmod(0o755)
+    seed_state(stub_state, formulas={"fakecli": "1.0"}, outdated_formulas=["fakecli"])
+
+    _require_ok(
+        _run(
+            stub_state,
+            apps,
+            extra_vars=['{"casks": [], "formulas": [{"name": "rustc"}, {"name": "fakecli"}]}'],
+            extra_env={"PATH": f"{fake_bin}{os.pathsep}{CLEAN_PATH}"},
+        )
+    )
+    calls = invocations(stub_state)
+
+    assert not [c for c in calls if "rustc" in c and ("install" in c or "upgrade" in c)], (
+        f"manually-present rustc was touched: {calls}"
+    )
     upgrades = [c for c in calls if c.startswith("brew upgrade")]
     assert len(upgrades) == 1 and set(upgrades[0].split()[2:]) == {"fakecli"}, (
-        f"upgrade scope must exclude the manual install: {upgrades}"
+        f"upgrade scope must be exactly the managed outdated set: {upgrades}"
     )
 
 
@@ -148,7 +181,7 @@ def test_brew_managed_present_app_is_upgraded_not_untouched(stub_state):
     extra_bin.mkdir(exist_ok=True)
     (extra_bin / "gh").write_text("#!/bin/sh\n")
     (extra_bin / "gh").chmod(0o755)
-    seed_state(stub_state, casks=["iterm2"], formulas={"gh": "2.0"})  # ...both brew-managed
+    seed_state(stub_state, casks=["iterm2"], formulas={"gh": "2.0"}, outdated_formulas=["gh"])  # ...both brew-managed; gh needs an update
 
     _require_ok(
         _run(stub_state, apps, extra_env={"PATH": f"{extra_bin}{os.pathsep}{CLEAN_PATH}"})
@@ -163,6 +196,40 @@ def test_brew_managed_present_app_is_upgraded_not_untouched(stub_state):
     assert set(scope) == set(INVENTORY_CASKS + INVENTORY_FORMULAS), (
         f"managed-but-present apps must stay in the upgrade set: {scope}"
     )
+
+
+def test_up_to_date_run_reports_no_change(stub_state):
+    # Re-running on a current machine must be an actual no-op (changed=0), not
+    # just "install nothing": the scoped upgrade is gated on `brew outdated`.
+    apps = _apps_dir(stub_state)
+    seed_state(
+        stub_state, casks=list(INVENTORY_CASKS), formulas={f: "1.0" for f in INVENTORY_FORMULAS}
+    )
+
+    result = _run(stub_state, apps, extra_env=CLEAN_ENV)
+    _require_ok(result)
+
+    assert not [c for c in invocations(stub_state) if c.startswith("brew upgrade")], (
+        f"nothing is outdated, yet brew was told to upgrade: {invocations(stub_state)}"
+    )
+    assert _recap_changed(result) == 0, f"up-to-date run reported changes:\n{result.stdout}"
+
+
+def test_outdated_app_triggers_scoped_upgrade_and_reports_change(stub_state):
+    apps = _apps_dir(stub_state)
+    seed_state(
+        stub_state, casks=list(INVENTORY_CASKS), formulas={f: "1.0" for f in INVENTORY_FORMULAS},
+        outdated_formulas=["gh"],
+    )
+
+    result = _run(stub_state, apps, extra_env=CLEAN_ENV)
+    _require_ok(result)
+
+    upgrades = [c for c in invocations(stub_state) if c.startswith("brew upgrade")]
+    assert len(upgrades) == 1 and set(upgrades[0].split()[2:]) == set(INVENTORY_CASKS + INVENTORY_FORMULAS), (
+        f"scoped upgrade wrong: {upgrades}"
+    )
+    assert _recap_changed(result) == 1, f"upgrade did not report a change:\n{result.stdout}"
 
 
 def _fake_omz_installer(stub_state):

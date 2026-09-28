@@ -6,16 +6,20 @@ installed: every CLI call lands in a stub, "installing Homebrew" just plants
 a wrapper around the brew stub, and sudo runs as-is against those stubs.
 
 Since M3, playbooks/site.yml exists and bootstrap runs it: every test seeds
-the app inventory as already brew-managed (INVENTORY_* below, mirrors
-playbooks/site.yml) so these tests stay focused on the bootstrap steps
-themselves. If the inventory grows, grow the seeds here too (or override per
-test).
+the app inventory as already brew-managed (INVENTORY_* below, loaded from the
+playbook itself) so these tests stay focused on the bootstrap steps themselves.
+
+The environment is hermetic: stubs + test venv + bare system dirs on PATH,
+$HOME and the cask presence dir ($APPS_DIR) point at tmp dirs — nothing from
+the host machine can influence the run.
 """
-from conftest import invocations, seed_state, state_entries
+from conftest import invocations, playbook_inventory, seed_state, state_entries
 
 OFFICIAL_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-INVENTORY_CASKS = ("1password", "iterm2", "visual-studio-code")
-INVENTORY_FORMULAS = {"opencode": "1.0.0", "emacs": "30.2", "gh": "2.67.0", "uv": "0.5.4", "shellcheck": "0.10.0"}
+# Mirrors playbooks/site.yml (loaded from there — don't duplicate the list).
+INVENTORY_CASKS = tuple(playbook_inventory()[0])
+# Versions are irrelevant to the stubs; one value keeps seeding terse.
+INVENTORY_FORMULAS = {name: "1.0" for name in playbook_inventory()[1]}
 
 
 def _require_ok(result):
