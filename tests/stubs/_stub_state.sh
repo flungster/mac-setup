@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Shared state helpers for the CLI stubs in this directory (brew, xcode-select,
-# xcodebuild, xcodes). Each stub sets STUB_TOOL before sourcing this file.
+# Shared state helpers for the CLI stubs in this directory (brew, curl, sudo,
+# xcode-select, xcodebuild). Each stub sets STUB_TOOL before sourcing this file.
 
 if [ -z "${STUB_STATE_DIR:-}" ]; then
   echo "stub: STUB_STATE_DIR environment variable is required" >&2

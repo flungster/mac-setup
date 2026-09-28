@@ -1,13 +1,1 @@
-## Agent skills
-
-### Issue tracker
-
-Issues live in GitHub Issues on `flungster/mac-setup`, driven with the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default five-role vocabulary; each label string is identical to its role name. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context — one `CONTEXT.md` at the repo root, ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+Read AGENTS.md and follow all of it. It holds the commit-message trailer convention (every commit ends with a `Generated with ...` line naming harness and model(s) — required for every commit, including yours) and the agent skills setup (issue tracker on GitHub Issues via `gh`, triage label vocabulary, domain docs under CONTEXT.md and docs/adr/).
