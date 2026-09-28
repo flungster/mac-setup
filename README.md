@@ -19,7 +19,7 @@ cd mac-setup
 ./bootstrap.sh        # or: make setup
 ```
 
-That's it. `bootstrap.sh` ensures, in order: Command Line Tools (a system dialog appears on a fresh Mac), the Xcode license when full Xcode is active (`sudo xcodebuild -license accept` — may prompt for your password; updates reset acceptance), Homebrew, and Ansible — then runs the provision playbook.
+That's it. `bootstrap.sh` ensures, in order: Command Line Tools (a system dialog appears on a fresh Mac; bootstrap waits until the install actually finishes), the Xcode license when full Xcode is active (`sudo xcodebuild -license accept` — may prompt for your password; updates reset acceptance), Homebrew, and Ansible. It also adds `eval "$(brew shellenv)"` to your `~/.zprofile`, so new terminals find brew. Then it runs the provision playbook.
 
 **Re-running is the update path.** Run `./bootstrap.sh` again to keep brew-managed apps in the inventory current and install anything missing. Apps that are present but not brew-managed (e.g. a manually installed 1Password) are never touched, by install or upgrade.
 
@@ -36,6 +36,6 @@ ansible-playbook -i playbooks/hosts -e 'homebrew_path=""' playbooks/site.yml
 
 ## Development
 
-- `make check` — bash syntax + shellcheck over all scripts and test stubs
+- `make check` — bash syntax + shellcheck over all scripts and test stubs. shellcheck is a hard requirement (bootstrap installs it); `SKIP_SHELLCHECK=1` runs bash syntax only
 - `make test`  — offline, stub-based tests; nothing real is installed (provisions `.test-venv` as needed)
 

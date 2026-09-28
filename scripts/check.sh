@@ -20,6 +20,10 @@ echo "bash syntax ok: ${#files[@]} file(s)"
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck "${files[@]}"
   echo "shellcheck ok"
+elif [ -n "${SKIP_SHELLCHECK:-}" ]; then
+  echo "shellcheck not installed: skipped (opted out via SKIP_SHELLCHECK=1)"
 else
-  echo "shellcheck not installed - skipped (brew install shellcheck / apt-get install shellcheck)"
+  echo "error: shellcheck not installed (brew install shellcheck / apt-get install shellcheck)" >&2
+  echo "       set SKIP_SHELLCHECK=1 to run bash -n only" >&2
+  exit 1
 fi

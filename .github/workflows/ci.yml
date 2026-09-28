@@ -4,6 +4,7 @@ on: [push, pull_request]
 
 jobs:
   static-and-stub-tests:
+    # Fast gate: pinned ansible (requirements-test.txt) on Linux.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,3 +14,24 @@ jobs:
 
       - name: Run static checks and stub-based playbook tests
         run: make check && make test
+
+  static-and-stub-tests-macos-current-ansible:
+    # Second axis, one job each: the macOS shell (bash 3.2, BSD userland) and
+    # ansible at its current release instead of the pinned one — bootstrap.sh
+    # installs Homebrew's live ansible on real machines, so tests must survive
+    # upstream module changes too. python@3.12 guarantees pick_python in
+    # scripts/ensure_test_env.sh finds a supported interpreter on the runner.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck and Python
+        run: brew install shellcheck python@3.12
+
+      - name: Provision test env, then move ansible to the current release
+        run: |
+          ./scripts/ensure_test_env.sh
+          ./.test-venv/bin/pip install -q --disable-pip-version-check ansible
+
+      - name: Run static checks and stub-based playbook tests
+        run: ./scripts/check.sh && ./.test-venv/bin/python -m pytest tests/ -q
