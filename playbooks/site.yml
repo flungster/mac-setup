@@ -11,8 +11,9 @@
 
   vars:
     # ---- your app list -------------------------------------------------
-    # Casks are presence-checked at apps_dir/<app_name>.app; formulas as
-    # `command -v <bin>` (defaults to the formula name). Anything present is
+    # Casks are presence-checked at apps_dir/<app_name>.app, except command-line
+    # casks with a bin: entry, which are checked as `command -v <bin>`. Formulas
+    # use the same PATH check (defaults to the formula name). Anything present is
     # never installed; only manual installs are also excluded from upgrades.
     casks:
       - name: 1password            # bootstrap dep — usually already present manually (ADR-0001)
@@ -21,12 +22,17 @@
         app_name: iTerm
       - name: visual-studio-code   # .app is "Visual Studio Code.app"
         app_name: Visual Studio Code
+      - name: claude-code          # CLI cask: no /Applications bundle to check for
+        bin: claude
+      - name: codex                # CLI cask: no /Applications bundle to check for
+        bin: codex
 
     formulas:
       - name: opencode             # the AI coding agent this repo is built with
       - name: emacs                # I am still an emacs person
       - name: gh
       - name: uv
+      - name: node                 # runs the Matt Pocock skills installer (npx) below
       - name: shellcheck           # `make check` lints this repo's shell with it
 
     apps_dir: "{{ lookup('env', 'APPS_DIR') | default('/Applications', true) }}"  # cask presence-check dir
@@ -41,12 +47,38 @@
     oh_my_zsh_install_url: https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
     oh_my_zsh_installer: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) }}/oh-my-zsh-install.sh"
 
+    # Matt Pocock's agent skills, installed with the open `skills` CLI (needs node).
+    # The installer puts one shared set at ~/.agents/skills for Codex/OpenCode and
+    # symlinks it into Claude Code's ~/.claude/skills. OpenCode is therefore not an
+    # explicit --agent target: it already reads global ~/.agents/skills, and targeting
+    # it too would expose the same skills to OpenCode from both .agents and .claude.
+    # Presence is that marker pair; a managed install also has the lock below, which
+    # re-runs use for `skills update` change detection. @latest is deliberate: this
+    # inventory tracks the newest release, not a pinned one.
+    skills_cli_package: skills@latest
+    matt_skills_source: mattpocock/skills
+    skills_home: "{{ lookup('env', 'HOME') }}"
+    matt_skills_marker_paths:
+      - "{{ skills_home }}/.agents/skills/setup-matt-pocock-skills/SKILL.md"
+      - "{{ skills_home }}/.claude/skills/setup-matt-pocock-skills/SKILL.md"
+    matt_skills_lock: "{{ skills_home }}/.agents/.skill-lock.json"
+    matt_skills_agents: [codex, claude-code]
+    # Flatten to CLI flags; agent ids never contain spaces.
+    matt_skills_agent_flags: "{{ matt_skills_agents | map('regex_replace', '^(.*)$', '--agent \\1') | join(' ') }}"
+
   tasks:
-    - name: Detect casks already present (including manual installs)
+    - name: Detect app-bundle casks already present (including manual installs)
       ansible.builtin.stat:
         path: "{{ apps_dir }}/{{ item.app_name | default(item.name) }}.app"
-      loop: "{{ casks }}"
-      register: cask_presence
+      loop: "{{ casks | rejectattr('bin', 'defined') }}"
+      register: app_cask_presence
+
+    - name: Detect command-line casks already present (including manual installs)
+      ansible.builtin.shell: command -v {{ item.bin | quote }}
+      loop: "{{ casks | selectattr('bin', 'defined') }}"
+      failed_when: false
+      changed_when: false
+      register: bin_cask_presence
 
     - name: Detect formulas already present (including manual installs)
       ansible.builtin.shell: command -v {{ item.bin | default(item.name) | quote }}
@@ -71,7 +103,9 @@
 
     - name: Record the presence and management sets (ADR-0001)
       ansible.builtin.set_fact:
-        present_casks: "{{ cask_presence.results | selectattr('stat.exists') | map(attribute='item.name') | list }}"
+        present_casks: >-
+          {{ (app_cask_presence.results | selectattr('stat.exists') | map(attribute='item.name') | list)
+             + (bin_cask_presence.results | selectattr('stdout', 'ne', '') | map(attribute='item.name') | list) }}
         present_formulas: "{{ formula_presence.results | selectattr('stdout', 'ne', '') | map(attribute='item.name') | list }}"
         managed_casks: "{{ cask_managed.results | selectattr('rc', 'equalto', 0) | map(attribute='item.name') | list }}"
         managed_formulas: "{{ formula_managed.results | selectattr('rc', 'equalto', 0) | map(attribute='item.name') | list }}"
@@ -146,3 +180,38 @@
         creates: "{{ oh_my_zsh_dir }}"
       environment:
         ZSH: "{{ oh_my_zsh_dir }}"
+
+    # A partial install is repaired by running the installer; a manual full install
+    # (both markers, no lock) is left entirely alone — ADR-0001.
+    - name: Check the Matt Pocock skill markers (ADR-0001)
+      ansible.builtin.stat: path="{{ item }}"
+      loop: "{{ matt_skills_marker_paths }}"
+      register: matt_skill_markers
+
+    - name: Record whether the Matt Pocock skills are present (ADR-0001)
+      ansible.builtin.set_fact:
+        matt_skills_present: "{{ (matt_skill_markers.results | selectattr('stat.exists') | list | length) == (matt_skills_marker_paths | length) }}"
+
+    - name: Install the Matt Pocock skills if not present
+      ansible.builtin.shell: >-
+        npx -y {{ skills_cli_package }} add {{ matt_skills_source | quote }} --global
+        --skill '*' {{ matt_skills_agent_flags }} --yes
+      when: not (matt_skills_present | bool)
+
+    - name: Check the Matt Pocock skills lock (managed installs have one)
+      ansible.builtin.stat: path="{{ matt_skills_lock }}"
+      register: matt_skills_lock_state
+
+    - name: Update the Matt Pocock skills if present (re-runs are the update path)
+      ansible.builtin.shell: |
+        set -eu
+        lock={{ matt_skills_lock | quote }}
+        before="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$lock" 2>/dev/null || true)"
+        npx -y {{ skills_cli_package }} update --global --yes
+        after="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$lock")"
+        if [ "${before:-}" != "$after" ]; then echo SKILLS_UPDATED; else echo SKILLS_CURRENT; fi
+      when: >-
+        (matt_skills_present | bool) and
+        (matt_skills_lock_state.stat.exists | default(false))
+      changed_when: "'SKILLS_UPDATED' in (matt_skills_update.stdout | default(''))"
+      register: matt_skills_update
