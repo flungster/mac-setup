@@ -23,6 +23,19 @@ for cmd in claude codex node; do
   fi
 done
 
+# Hermes Agent is the one optional app (opt-in at bootstrap), so it is only checked
+# when its source checkout exists — declining the prompt must not fail verify. The
+# installer's CLI wrapper lives at ~/.local/bin/hermes (PATH may not know it yet).
+hermes_home="${HERMES_HOME:-$HOME/.hermes}"
+if [ -d "$hermes_home/hermes-agent" ]; then
+  if version="$("$HOME/.local/bin/hermes" --version 2>/dev/null | head -n1)"; then
+    ok "hermes ($version)"
+  else
+    missing "hermes (Hermes Agent CLI, ~/.local/bin/hermes)" \
+      "./bootstrap.sh with INSTALL_HERMES_AGENT=1, or re-run the installer: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
+  fi
+fi
+
 agents_skills="$HOME/.agents/skills"
 claude_skills="$HOME/.claude/skills"
 

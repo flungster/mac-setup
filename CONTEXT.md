@@ -11,3 +11,7 @@ _Avoid_: package; cask/formula when the whole is meant
 **Present**:
 An app already installed on the machine, by any means — Homebrew or manually. Provisioning only installs apps that are not present; an app is never treated as absent just because Homebrew does not manage it.
 _Avoid_: installed (ambiguous: brew-managed vs on-disk) — say present when the distinction matters
+
+**Optional app**:
+An app not every machine wants, installed only when its user opts in (Hermes Agent). Once present it is managed like any other app; declining leaves the machine alone and never asks again.
+_Avoid_: feature (sounds like part of this repo's own behaviour); add-on, plugin (sound like parts of some other app)

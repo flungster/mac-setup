@@ -47,6 +47,21 @@
     oh_my_zsh_install_url: https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
     oh_my_zsh_installer: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) }}/oh-my-zsh-install.sh"
 
+    # Hermes Agent (Nous Research) — the one optional app: bootstrap asks whether to
+    # install it and passes -e install_hermes_agent=true only when the user says yes.
+    # Not in Homebrew (the hermes-agent formula builds on python@3.13, which upstream
+    # does not support), so it installs with its official script: a source checkout in
+    # $HERMES_HOME (default ~/.hermes) plus a `hermes` wrapper in ~/.local/bin, whose
+    # PATH line the installer appends to your shell rc files. Present = that checkout;
+    # like Oh My Zsh it updates itself, so a re-run does not upgrade it. URL and
+    # installer dest are overridable for tests (file://...). These tasks run after
+    # Oh My Zsh: the installer appends to ~/.zshrc, and a fresh Mac must get Oh My
+    # Zsh's template there first (--keep-zshrc never replaces an existing file).
+    install_hermes_agent: false  # bootstrap.sh's prompt decides; default off keeps a bare playbook run quiet
+    hermes_home: "{{ lookup('env', 'HERMES_HOME') | default(lookup('env', 'HOME') ~ '/.hermes', true) }}"
+    hermes_install_url: https://hermes-agent.nousresearch.com/install.sh
+    hermes_installer: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) }}/hermes-install.sh"
+
     # Matt Pocock's agent skills, installed with the open `skills` CLI (needs node).
     # The installer puts one shared set at ~/.agents/skills for Codex/OpenCode and
     # symlinks it into Claude Code's ~/.claude/skills. OpenCode is therefore not an
@@ -180,6 +195,31 @@
         creates: "{{ oh_my_zsh_dir }}"
       environment:
         ZSH: "{{ oh_my_zsh_dir }}"
+
+    # Optional app: every task is gated on install_hermes_agent, so a declined (or
+    # unasked) run leaves the machine alone. Presence is the source checkout — a manual
+    # install counts as present (ADR-0001).
+    - name: Check whether Hermes Agent is present (ADR-0001)
+      ansible.builtin.stat: path="{{ hermes_home }}/hermes-agent"
+      register: hermes_present
+
+    - name: Fetch the Hermes Agent installer (only when missing)
+      ansible.builtin.get_url:
+        url: "{{ hermes_install_url }}"
+        dest: "{{ hermes_installer }}"
+      when: install_hermes_agent | bool and not hermes_present.stat.exists
+
+    # --non-interactive: skip the setup wizard and gateway config (the user runs
+    # `hermes model` or `hermes setup` afterwards). HERMES_HOME is passed explicitly
+    # so the checkout lands where this playbook's presence check looks. `creates` is
+    # a second presence gate (ADR-0001). It updates itself afterwards, so no upgrade.
+    - name: Install Hermes Agent if not present (opt-in via the bootstrap prompt)
+      ansible.builtin.shell: bash {{ hermes_installer | quote }} --non-interactive
+      args:
+        creates: "{{ hermes_home }}/hermes-agent"
+      environment:
+        HERMES_HOME: "{{ hermes_home }}"
+      when: install_hermes_agent | bool and not hermes_present.stat.exists
 
     # A partial install is repaired by running the installer; a manual full install
     # (both markers, no lock) is left entirely alone — ADR-0001.
