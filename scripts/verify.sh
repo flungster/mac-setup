@@ -23,16 +23,30 @@ for cmd in claude codex node; do
   fi
 done
 
-# Hermes Agent is the one optional app (opt-in at bootstrap), so it is only checked
-# when its source checkout exists — declining the prompt must not fail verify. The
-# installer's CLI wrapper lives at ~/.local/bin/hermes (PATH may not know it yet).
-hermes_home="${HERMES_HOME:-$HOME/.hermes}"
-if [ -d "$hermes_home/hermes-agent" ]; then
-  if version="$("$HOME/.local/bin/hermes" --version 2>/dev/null | head -n1)"; then
-    ok "hermes ($version)"
+# The agents VM (opt-in, PROVISION_AGENTS_VM=1) is only checked when OrbStack
+# exists and the machine was created: declining it must not fail verify.
+if command -v orb >/dev/null 2>&1 && (orb list 2>/dev/null | grep -qw agents); then
+  if ssh -o BatchMode=yes -o ConnectTimeout=5 agents@orb true >/dev/null 2>&1; then
+    ok "agents VM reachable via ssh agents@orb"
   else
-    missing "hermes (Hermes Agent CLI, ~/.local/bin/hermes)" \
-      "./bootstrap.sh with INSTALL_HERMES_AGENT=1, or re-run the installer: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
+    missing "agents VM (ssh agents@orb)" \
+      "./bootstrap.sh with PROVISION_AGENTS_VM=1, or start the machine: orb start agents"
+  fi
+
+  dashboard_status="$(curl -s --max-time 5 http://127.0.0.1:9119/api/status 2>/dev/null || true)"
+  if printf '%s' "$dashboard_status" | grep -q '"basic"' && \
+     printf '%s' "$dashboard_status" | grep -Eq '"auth_required"[[:space:]]*:[[:space:]]*true'; then
+    ok "Hermes dashboard auth gate is on (http://127.0.0.1:9119, provider basic)"
+  else
+    missing "Hermes dashboard (http://<mac-ip>:9119, should prompt for a login)" \
+      "on the VM: sudo systemctl restart hermes-dashboard; check ~/.hermes/.env has HERMES_DASHBOARD_BASIC_AUTH_*"
+  fi
+
+  if curl -s -o /dev/null --max-time 5 http://127.0.0.1:4096; then
+    ok "OpenCode server is up (http://127.0.0.1:4096, VM-local)"
+  else
+    missing "OpenCode server (http://127.0.0.1:4096)" \
+      "on the VM: sudo systemctl restart opencode-server"
   fi
 fi
 

@@ -25,7 +25,7 @@ That's it. `bootstrap.sh` ensures, in order: Command Line Tools (a system dialog
 
 The managed inventory — what actually gets installed/upgraded — lives in `playbooks/site.yml` (currently: 1Password, iTerm2, Visual Studio Code, Claude Code and Codex as casks; opencode, emacs, gh, uv, node and shellcheck as formulas; plus Oh My Zsh).
 
-**Hermes Agent is the one optional app.** It's not in that inventory: `bootstrap.sh` asks whether to install it, and a no (or running without a terminal) leaves the machine alone. Answer in advance with `INSTALL_HERMES_AGENT=1` (install) or `0` (skip); a re-run where Hermes is already present keeps it managed without asking again. It installs with its official script (not Homebrew — the formula builds on an unsupported Python), places a source checkout under `~/.hermes` and adds a `hermes` wrapper to your PATH via `~/.local/bin`. Like Oh My Zsh it updates itself, so re-running bootstrap won't upgrade it. After a fresh install, point it at a provider with `hermes model` (or the full wizard: `hermes setup`).
+**OrbStack is in the inventory so this Mac can host the agents VM.** The virtual machine itself (Hermes Agent + OpenCode, provisioned by `playbooks/agents-vm.yml`) is opt-in and not run by default — see [Agents VM](#agents-vm-hermes-agent--opencode-in-a-linux-virtual-machine).
 
 Matt Pocock's agent skills are installed globally with the open `skills` CLI (always at its latest release). One shared set lives in `~/.agents/skills` for OpenCode and Codex; Claude Code receives symlinks in `~/.claude/skills`. Re-running bootstrap updates them only when the upstream lock actually changes. After a fresh run, sign in with `claude` and `codex login`, then run `/setup-matt-pocock-skills` once in each repo.
 
@@ -38,7 +38,29 @@ eval "$(/opt/homebrew/bin/brew shellenv)"   # /usr/local on Intel Macs
 ansible-playbook -i playbooks/hosts -e 'homebrew_path=""' playbooks/site.yml
 ```
 
-The optional Hermes Agent is skipped unless you add `-e install_hermes_agent=true` (that's how `bootstrap.sh` forwards your answer to the prompt).
+The agents VM is skipped unless you opt in: `PROVISION_AGENTS_VM=1 ./bootstrap.sh` (plus `AGENTS_VAULT_PASSWORD_FILE`, see below), or run the playbook directly:
+
+```sh
+ansible-playbook -i playbooks/hosts --vault-password-file <file> playbooks/agents-vm.yml
+```
+
+## Agents VM (Hermes Agent + OpenCode in a Linux virtual machine)
+
+One isolated OrbStack machine named `agents` (Ubuntu 24.04, ARM64) runs **Hermes Agent** — the agent you talk to from any LAN device via its web dashboard, or through Telegram when away — and **OpenCode**, the coding agent it hands work to. The design is documented in [`docs/plans/agents-vm.md`](docs/plans/agents-vm.md) and decided in [`docs/adr/0002-agents-via-orbstack-machine.md`](docs/adr/0002-agents-via-orbstack-machine.md).
+
+What the playbook does (re-running is the update path): sets OrbStack's memory/CPU ceilings, creates `~/agent_workspaces` and the isolated machine (shared only as `/workspace`, with clones of your personal repos), then inside the VM installs and configures OpenCode (Anthropic + your local oMLX server), Hermes Agent (dashboard with username/password login, Telegram gateway, the OpenCode bridge skill) and read-only Gmail/Calendar access through `workspace-mcp`.
+
+**Opt-in.** It never runs by default. On this Mac:
+
+```sh
+PROVISION_AGENTS_VM=1 AGENTS_VAULT_PASSWORD_FILE=~/.config/mac-setup/agents-vm-vault-pass ./bootstrap.sh
+```
+
+**Secrets.** `playbooks/secrets/agents-vm-secrets.yml` holds the API keys and tokens. Copy `playbooks/secrets/agents-vm-secrets.example.yml`, fill it in, encrypt it (`ansible-vault encrypt --vault-password-file <file> playbooks/secrets/agents-vm-secrets.yml`), and keep both the file and its password out of git. Only `anthropic_api_key` and `hermes_dashboard_password` are required; the rest (Telegram, Google OAuth client, GitHub PAT, oMLX key) enable their features when present.
+
+**Steps only you can do:** create the Telegram bot with @BotFather and get your user ID from @userinfobot; set up a Google Cloud project (Gmail + Calendar APIs, External consent screen published to Production without review, one Desktop-app OAuth client); create a fine-grained GitHub PAT for `flungster/mac-setup` and `flungster/health-tracker`. Full walkthrough: see the plan's "Human-only steps" section. After provisioning, sign in once per Gmail account through a browser link (an SSH tunnel to the VM if your browser can't reach it).
+
+**Reaching the agents:** `ssh agents@orb` from macOS; dashboard at `http://<mac-ip>:9119` (username/password) from any LAN device; Telegram anywhere. The VM is NATed behind the Mac, so it has no IP of its own on your network.
 
 ## Development
 

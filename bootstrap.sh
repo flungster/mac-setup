@@ -118,57 +118,53 @@ ensure_ansible() {
   fi
 }
 
-# Hermes Agent (Nous Research) is the one optional app. The choice is made here and
-# passed to the playbook as -e install_hermes_agent=... INSTALL_HERMES_AGENT=1/0
-# answers for the user (automation, tests); a re-run where Hermes is already present
-# keeps managing it without asking again; with no TTY on stdin there is nobody to ask,
-# so the answer stays off (never hang waiting for input).
-choose_hermes() {
-  local decided=false reply=""
-  HERMES_CHOICE=false
-  HERMES_FRESH=false
-  case "${INSTALL_HERMES_AGENT:-}" in
-    "" ) ;; # ask below (or default to off when nobody can be asked)
-    1|true|yes ) HERMES_CHOICE=true; log "Hermes Agent: installing (INSTALL_HERMES_AGENT set)"; decided=true ;;
-    0|false|no ) log "Hermes Agent: skipping (INSTALL_HERMES_AGENT set)"; decided=true ;;
-    * ) log "error: INSTALL_HERMES_AGENT must be 1/true or 0/false (got '${INSTALL_HERMES_AGENT}')" >&2; return 1 ;;
-  esac
-  if [ "$decided" = false ] && [ -d "${HERMES_HOME:-$HOME/.hermes}/hermes-agent" ]; then
-    HERMES_CHOICE=true  # already present: keep managing it (ADR-0001), don't re-prompt
-    decided=true
-  fi
-  if [ "$decided" = false ] && [ -t 0 ]; then
-    printf 'Install Hermes Agent? (optional, https://hermes-agent.nousresearch.com) [y/N] '
-    IFS= read -r reply || true
-    case "$reply" in
-      y|Y|yes|YES ) HERMES_CHOICE=true ;;
-      * ) log "Hermes Agent: skipping" ;;
-    esac
-  fi
-  if [ "$decided" = false ]; then
-    log "Hermes Agent: not installing (no prompt available; set INSTALL_HERMES_AGENT=1 to install)"
-  fi
-  if [ "$HERMES_CHOICE" = true ] && [ ! -d "${HERMES_HOME:-$HOME/.hermes}/hermes-agent" ]; then
-    HERMES_FRESH=true  # a fresh install needs one-time configuration afterwards
-  fi
-}
-
 run_playbook() {
   if [ -f "$REPO_ROOT/playbooks/site.yml" ]; then
     log "running provision playbook (playbooks/site.yml)"
     # homebrew_path="" keeps the brew modules on PATH lookup: in tests that is
     # the stub dir; here, /opt/homebrew/bin after `eval "$(brew shellenv)"` above.
     # (Omitting it makes them prefer hardcoded /usr/local:/opt/homebrew dirs.)
-    # install_hermes_agent carries the user's opt-in for the optional Hermes Agent.
     (cd "$REPO_ROOT" && ansible-playbook -i playbooks/hosts \
-      -e 'homebrew_path=""' -e "install_hermes_agent=${HERMES_CHOICE}" playbooks/site.yml)
+      -e 'homebrew_path=""' playbooks/site.yml)
   else
     log "playbooks/site.yml not present yet: skipping (lands in a later milestone)"
   fi
+
+  # The agents VM playbook is the second half of an opt-in run (validated in main):
+  # it needs OrbStack (installed by site.yml above) and a vault of secrets.
+  if [ "${AGENTS_VM_CHOICE:-false}" != true ]; then
+    return 0
+  fi
+  if [ ! -f "$REPO_ROOT/playbooks/agents-vm.yml" ]; then
+    log "playbooks/agents-vm.yml not present yet: skipping (lands in a later milestone)"
+    return 0
+  fi
+  log "running agents VM playbook (playbooks/agents-vm.yml)"
+  if [ -n "${AGENTS_VAULT_PASSWORD_FILE:-}" ]; then
+    (cd "$REPO_ROOT" && ansible-playbook -i playbooks/hosts \
+      --vault-password-file "$AGENTS_VAULT_PASSWORD_FILE" playbooks/agents-vm.yml)
+  else
+    (cd "$REPO_ROOT" && ansible-playbook -i playbooks/hosts \
+      playbooks/agents-vm.yml)
+  fi
+}
+
+# The agents VM is opt-in and needs secrets, so it never runs by default.
+# PROVISION_AGENTS_VM=1/true opts in (automation, tests); AGENTS_VAULT_PASSWORD_FILE
+# points at the file holding the vault password for playbooks/secrets/. Validated
+# first in main so a bad answer fails before anything is installed.
+choose_agents_vm() {
+  AGENTS_VM_CHOICE=false
+  case "${PROVISION_AGENTS_VM:-}" in
+    "" ) log "agents VM: not provisioning (set PROVISION_AGENTS_VM=1 to opt in)" ;;
+    1|true ) AGENTS_VM_CHOICE=true; log "agents VM: provisioning (PROVISION_AGENTS_VM set)" ;;
+    0|false ) log "agents VM: skipping (PROVISION_AGENTS_VM set)" ;;
+    * ) log "error: PROVISION_AGENTS_VM must be 1/true or 0/false (got '${PROVISION_AGENTS_VM}')" >&2; return 1 ;;
+  esac
 }
 
 main() {
-  choose_hermes  # first: the only stdin prompt — everything after is passwords and dialogs
+  choose_agents_vm  # first: fail fast on a bad opt-in, before anything is installed
   ensure_command_line_tools
   ensure_xcode_license
   ensure_homebrew
@@ -176,9 +172,6 @@ main() {
   ensure_ansible
   run_playbook
   log "one-time follow-ups: sign in with 'claude' and 'codex login'; run /setup-matt-pocock-skills once in each repo"
-  if [ "$HERMES_FRESH" = true ]; then
-    log "one-time follow-up: run 'hermes model' (or the full wizard with 'hermes setup') to point Hermes at a provider"
-  fi
   log "done"
 }
 

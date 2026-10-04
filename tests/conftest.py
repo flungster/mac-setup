@@ -205,13 +205,6 @@ def bootstrap(tmp_path):
     home.mkdir()
     seed_matt_skill_markers(home)
     env["HOME"] = str(home)
-    # Hermes Agent (optional app): presence is $HERMES_HOME/hermes-agent. Point it
-    # at an existing checkout so M2's bootstrap-focused runs treat Hermes as present
-    # and the playbook never reaches its installer (tested in M3). Present also means
-    # bootstrap's opt-in prompt auto-answers yes without asking — pinned in M2.
-    hermes_home = tmp_path / "hermes-home"
-    (hermes_home / "hermes-agent").mkdir(parents=True)
-    env["HERMES_HOME"] = str(hermes_home)
     # Empty cask presence dir: the host's real /Applications must not leak into
     # the playbook run that bootstrap drives.
     apps = tmp_path / "apps"
@@ -229,8 +222,8 @@ def bootstrap(tmp_path):
         return subprocess.run(
             ["bash", str(REPO_ROOT / "bootstrap.sh")],
             capture_output=True, text=True, env=merged, cwd=str(REPO_ROOT), timeout=600,
-            # Never let the Hermes opt-in prompt read a real terminal under test:
-            # without a TTY on stdin bootstrap must default to off, not hang.
+            # Never let a prompt read a real terminal under test: without a TTY on
+            # stdin bootstrap must use its default, not hang.
             stdin=subprocess.DEVNULL,
         )
 

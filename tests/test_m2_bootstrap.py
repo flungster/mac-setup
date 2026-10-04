@@ -13,17 +13,14 @@ The environment is hermetic: stubs + test venv + bare system dirs on PATH,
 $HOME and the cask presence dir ($APPS_DIR) point at tmp dirs — nothing from
 the host machine can influence the run.
 
-Hermes Agent (optional app): the fixture plants an already-present checkout
-under $HERMES_HOME, so every run auto-answers opt-in yes without prompting.
-The prompt and the -e install_hermes_agent=... plumbing get their own tests
-below, using a recording ansible-playbook shim on PATH.
+The agents VM is an opt-in second playbook (PROVISION_AGENTS_VM): its
+env-var plumbing gets tests below, using a recording ansible-playbook shim on
+PATH (the playbook itself is tested in M5).
 """
 import os
-import select
 import shlex
-import subprocess
 
-from conftest import REPO_ROOT, invocations, playbook_inventory, seed_state, state_entries
+from conftest import invocations, playbook_inventory, seed_state, state_entries
 
 OFFICIAL_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 # Mirrors playbooks/site.yml (loaded from there — don't duplicate the list).
@@ -239,11 +236,12 @@ def test_brew_shellenv_added_to_zprofile_once(bootstrap):
     assert zprofile_lines().count(line) == 1, f"re-run duplicated the brew shellenv line: {zprofile_lines()}"
 
 
-# ---- Hermes Agent (optional app): prompt + -e install_hermes_agent plumbing --
+# ---- agents VM: PROVISION_AGENTS_VM opt-in plumbing ---------------------------
 #
-# A shim named ansible-playbook on PATH records bootstrap's arguments and exits 0,
-# so these tests pin what is passed without running the playbook (its opt-in
-# semantics have their own M3 tests).
+# A shim named ansible-playbook on PATH records bootstrap's arguments (one line per
+# invocation) and exits 0, so these tests pin what is passed without running the
+# playbooks (their own behaviour has M3/M5 tests). The two opt-in-happy-path tests
+# run once playbooks/agents-vm.yml exists (step 3).
 
 
 def _record_playbook_args(bootstrap):
@@ -273,145 +271,37 @@ def _seed_managed(bootstrap):
     )
 
 
-def _absent_hermes_home(bootstrap):
-    """An empty $HERMES_HOME: no checkout, so hermes is absent and the prompt shows."""
-    d = bootstrap.state_dir.parent / "hermes-empty"
-    d.mkdir(exist_ok=True)
-    return str(d)
+def _playbook_calls(bootstrap):
+    return [l for l in _playbook_args(bootstrap).splitlines() if l]
 
 
-def test_hermes_opt_in_yes_is_passed_to_playbook(bootstrap):
-    bootstrap.install_brew()
-    _seed_managed(bootstrap)
-
-    env = _record_playbook_args(bootstrap)
-    env["INSTALL_HERMES_AGENT"] = "1"
-
-    _require_ok(bootstrap.run(extra_env=env))
-    assert "-e install_hermes_agent=true" in _playbook_args(bootstrap), (
-        f"opt-in yes not passed to the playbook: {_playbook_args(bootstrap)}"
-    )
-
-
-def test_hermes_opt_in_no_is_passed_to_playbook(bootstrap):
-    bootstrap.install_brew()
-    _seed_managed(bootstrap)
-
-    env = _record_playbook_args(bootstrap)
-    env["INSTALL_HERMES_AGENT"] = "0"
-
-    _require_ok(bootstrap.run(extra_env=env))
-    assert "-e install_hermes_agent=false" in _playbook_args(bootstrap), (
-        f"opt-in no not passed to the playbook: {_playbook_args(bootstrap)}"
-    )
-
-
-def test_hermes_absent_without_a_tty_defaults_off(bootstrap):
-    # No INSTALL_HERMES_AGENT, hermes absent, stdin is /dev/null (fixture): there
-    # is nobody to ask, so the answer must be off — and bootstrap must not hang.
-    bootstrap.install_brew()
-    _seed_managed(bootstrap)
-
-    env = _record_playbook_args(bootstrap)
-    env["HERMES_HOME"] = _absent_hermes_home(bootstrap)
-
-    _require_ok(bootstrap.run(extra_env=env))
-    assert "-e install_hermes_agent=false" in _playbook_args(bootstrap), (
-        f"default-off not passed: {_playbook_args(bootstrap)}"
-    )
-
-
-def test_hermes_already_present_is_kept_managed_without_prompt(bootstrap):
-    # A re-run where hermes is present must keep managing it (opt-in yes) without
-    # asking again — the fixture plants an existing checkout under $HERMES_HOME.
+def test_agents_vm_not_provisioned_by_default(bootstrap):
     bootstrap.install_brew()
     _seed_managed(bootstrap)
 
     env = _record_playbook_args(bootstrap)
 
     _require_ok(bootstrap.run(extra_env=env))
-    assert "-e install_hermes_agent=true" in _playbook_args(bootstrap), (
-        f"present hermes not kept managed: {_playbook_args(bootstrap)}"
+    calls = _playbook_calls(bootstrap)
+
+    assert len(calls) == 1, f"expected only the site playbook; saw: {calls}"
+    assert "playbooks/site.yml" in calls[0] and "agents-vm" not in calls[0], (
+        f"default run touched the agents VM playbook: {calls}"
     )
 
 
-def test_hermes_invalid_opt_in_flag_fails(bootstrap):
+def test_agents_vm_invalid_opt_in_fails_before_any_playbook(bootstrap):
     bootstrap.install_brew()
     _seed_managed(bootstrap)
 
-    result = bootstrap.run(extra_env={"INSTALL_HERMES_AGENT": "banana"})
+    env = _record_playbook_args(bootstrap)
+    env["PROVISION_AGENTS_VM"] = "banana"
+
+    result = bootstrap.run(extra_env=env)
 
     assert result.returncode != 0, f"bootstrap succeeded with a bad flag:\n{result.stderr}"
-    assert "INSTALL_HERMES_AGENT must be" in result.stderr, f"no clear error: {result.stderr}"
-
-
-def _run_with_tty(bootstrap, extra_env=None, tty_input=b"y\n"):
-    """Run bootstrap.sh with a pseudo-terminal on stdin (the interactive prompt path).
-
-    Returns (returncode, transcript); `tty_input` is what the "user" types. Only
-    stdin goes through the pty; all output still comes back on a plain pipe, so the
-    transcript is readable and assertable (e.g. that the prompt was actually shown).
-    """
-    import pty
-
-    merged = dict(bootstrap.env)
-    if extra_env:
-        merged.update(extra_env)
-    master_fd, slave_fd = pty.openpty()
-    proc = subprocess.Popen(
-        ["bash", str(REPO_ROOT / "bootstrap.sh")],
-        stdin=slave_fd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=merged,
-        cwd=str(REPO_ROOT), close_fds=True,
-    )
-    # Popen has given the child its own end of the pty; drop ours. The line
-    # discipline buffers `tty_input` until bootstrap's `read` consumes it.
-    os.close(slave_fd)
-    os.write(master_fd, tty_input)
-    chunks = []  # read the output pipe to EOF; bounded so a stuck run fails loudly
-    while True:
-        ready, _, _ = select.select([proc.stdout], [], [], 120)
-        if not ready:
-            proc.kill()
-            raise TimeoutError(
-                f"bootstrap did not exit under a TTY; transcript so far: {b''.join(chunks)!r}"
-            )
-        data = os.read(proc.stdout.fileno(), 65536)
-        if not data:
-            break
-        chunks.append(data)
-    rc = proc.wait(timeout=60)
-    os.close(master_fd)
-    return rc, b"".join(chunks).decode(errors="replace")
-
-
-def test_hermes_prompt_yes_passes_true(bootstrap):
-    bootstrap.install_brew()
-    _seed_managed(bootstrap)
-
-    env = _record_playbook_args(bootstrap)
-    env["HERMES_HOME"] = _absent_hermes_home(bootstrap)
-
-    rc, transcript = _run_with_tty(bootstrap, extra_env=env, tty_input=b"y\n")
-    assert rc == 0, f"bootstrap failed under a TTY:\n{transcript}"
-    assert "Install Hermes Agent?" in transcript, f"prompt not shown: {transcript}"
-    assert "-e install_hermes_agent=true" in _playbook_args(bootstrap), (
-        f"'y' at the prompt not passed through: {_playbook_args(bootstrap)}"
-    )
-
-
-def test_hermes_prompt_bare_enter_is_no(bootstrap):
-    # The prompt's default is No: a bare Enter declines (and it must be the prompt
-    # that answered — hence the pty and the visible question in the transcript).
-    bootstrap.install_brew()
-    _seed_managed(bootstrap)
-
-    env = _record_playbook_args(bootstrap)
-    env["HERMES_HOME"] = _absent_hermes_home(bootstrap)
-
-    rc, transcript = _run_with_tty(bootstrap, extra_env=env, tty_input=b"\n")
-    assert rc == 0, f"bootstrap failed under a TTY:\n{transcript}"
-    assert "Install Hermes Agent?" in transcript, f"prompt not shown: {transcript}"
-    assert "-e install_hermes_agent=false" in _playbook_args(bootstrap), (
-        f"'[Enter]' at the prompt must default to no: {_playbook_args(bootstrap)}"
+    assert "PROVISION_AGENTS_VM must be" in result.stderr, f"no clear error: {result.stderr}"
+    assert not (bootstrap.state_dir / "playbook-args.log").exists(), (
+        f"a bad opt-in must fail before any playbook runs: {_playbook_args(bootstrap)}"
     )
 
