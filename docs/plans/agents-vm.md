@@ -1,6 +1,6 @@
 # Plan: agents VM (Hermes Agent + OpenCode) on the Mac Studio
 
-Status: draft for review — not yet implemented. Supersedes `docs/prd_automated_agent_infrastructure.md` (two-VM design).
+Status: implemented — every tracer bullet below has landed (see git history). Changes made after implementation are recorded at the end of this file and in `docs/plans/orbstack-opt-in.md`.
 
 ## Goal
 
@@ -136,3 +136,9 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 - Default Anthropic model for each agent.
 - Whether Cornell permits third-party OAuth access to `fl10@cornell.edu`.
 - Whether the dashboard should start on boot or only on demand.
+
+## Changes since implementation (docs/plans/orbstack-opt-in.md)
+
+- **OrbStack is not in the Mac baseline any more.** The `orbstack` cask was removed from `playbooks/site.yml`; the agents-VM playbook installs or updates OrbStack itself, only when you opt in (ADR 0001's rules still apply: manual installs are left alone).
+- **Opt-in is a bootstrap question** — "Install/update OrbStack and the agents VM (Hermes Agent + OpenCode)? [y/N]" — asked on every run, default No, and a no-terminal bootstrap answers No without hanging. `PROVISION_AGENTS_VM` still pre-answers it for automation; on "yes", the vault password is read from `AGENTS_VAULT_PASSWORD_FILE` or asked interactively (`--ask-vault-pass`).
+- **Answering "yes" without a secrets file stops the bootstrap before anything is installed**, pointing at `playbooks/secrets/agents-vm-secrets.example.yml`.
