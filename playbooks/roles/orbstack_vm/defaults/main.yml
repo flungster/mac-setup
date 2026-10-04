@@ -1,0 +1,3 @@
+---
+# The orb CLI (OrbStack is a cask in site.yml's inventory). Overridable for tests.
+orb_bin: orb

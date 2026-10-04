@@ -1,3 +1,6 @@
 .test-venv/
 __pycache__/
 .pytest_cache/
+
+# the real agents VM secrets (the .example template is committed)
+playbooks/secrets/agents-vm-secrets.yml

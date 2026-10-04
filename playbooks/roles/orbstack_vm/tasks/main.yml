@@ -1,0 +1,117 @@
+---
+# The OrbStack side of the agents VM. Runs on this Mac; every CLI call goes through
+# `orb` (stubbed in tests). Idempotent: re-running reconciles the global ceilings
+# and the machine's mount, never recreating what already exists (ADR-0001 — a
+# machine that is present, however it got there, is kept and reconciled).
+
+- name: Find the orb CLI (OrbStack cask, in site.yml's inventory)
+  ansible.builtin.shell: command -v {{ orb_bin }}
+  register: orb_path
+  failed_when: false
+  changed_when: false
+
+- name: Fail with a hint if OrbStack is not installed yet
+  ansible.builtin.fail:
+    msg: >-
+      orb CLI not found — install OrbStack first. It is in site.yml's cask list, so a
+      plain ./bootstrap.sh (or make setup) installs it; then re-run this playbook.
+  when: orb_path.rc != 0
+
+- name: Check whether OrbStack is running (orb list fails while the app is stopped)
+  ansible.builtin.shell: "{{ orb_bin }} list"
+  register: orb_list_probe
+  failed_when: false
+  changed_when: false
+
+- name: Start OrbStack if it was stopped
+  ansible.builtin.shell: "{{ orb_bin }} start"
+  when: orb_list_probe.rc != 0
+
+- name: List OrbStack machines
+  ansible.builtin.shell: "{{ orb_bin }} list"
+  register: orb_list
+
+- name: Record whether the agents VM already exists (never recreate — ADR-0001)
+  ansible.builtin.set_fact:
+    agents_vm_present: "{{ orb_list.stdout is search('\\b' ~ (agents_vm_name | regex_escape) ~ '\\b') }}"
+
+- name: Ensure the shared workspace folder exists on this Mac
+  ansible.builtin.file:
+    path: "{{ agents_vm_workspace_host_path }}"
+    state: directory
+
+# OrbStack's memory_mib/cpu are GLOBAL ceilings (all machines share them); setting
+# them is a no-op when the value already matches. The LAN-exposure default keeps the
+# dashboard reachable from other devices via this Mac's IP — pin it so a manual UI
+# change is healed on the next run.
+- name: Read the current OrbStack memory ceiling (MiB)
+  ansible.builtin.shell: "{{ orb_bin }} config get memory_mib"
+  register: agents_vm_memory_current
+  failed_when: false
+  changed_when: false
+
+- name: Set the OrbStack memory ceiling when different ({{ agents_vm_memory_mib }} MiB)
+  ansible.builtin.shell: "{{ orb_bin }} config set memory_mib {{ agents_vm_memory_mib | string }}"
+  when: ((agents_vm_memory_current.stdout | default('')) | trim) != (agents_vm_memory_mib | string)
+
+- name: Read the current OrbStack CPU ceiling
+  ansible.builtin.shell: "{{ orb_bin }} config get cpu"
+  register: agents_vm_cpu_current
+  failed_when: false
+  changed_when: false
+
+- name: Set the OrbStack CPU ceiling when different ({{ agents_vm_cpu }} cores)
+  ansible.builtin.shell: "{{ orb_bin }} config set cpu {{ agents_vm_cpu | string }}"
+  when: (agents_vm_cpu_current.stdout | default('') | trim) != agents_vm_cpu | string
+
+- name: Read whether machine ports are exposed to the LAN
+  ansible.builtin.shell: "{{ orb_bin }} config get machines.expose_ports_to_lan"
+  register: agents_vm_lan_current
+  failed_when: false
+  changed_when: false
+
+- name: Expose machine ports to the LAN when not already (dashboard access)
+  ansible.builtin.shell: "{{ orb_bin }} config set machines.expose_ports_to_lan true"
+  when: (agents_vm_lan_current.stdout | default('') | trim) != 'true'
+
+- name: Create the isolated agents VM (mounts only the workspace folder)
+  ansible.builtin.shell: >-
+    {{ orb_bin }} create --isolated
+    --mount {{ agents_vm_mount_spec | quote }}
+    {{ agents_vm_distro }} {{ agents_vm_name }}
+  when: not (agents_vm_present | bool)
+
+# An existing machine may carry a stale or missing mount spec: reconcile it, and
+# restart only when the value actually changed (OrbStack applies mounts at boot).
+- name: Read the agents VM's current workspace mount (existing machines only)
+  ansible.builtin.shell: "{{ orb_bin }} config get machine.{{ agents_vm_name }}.mounts"
+  register: agents_vm_mount_current
+  failed_when: false
+  changed_when: false
+  when: agents_vm_present | bool
+
+- name: Reconcile the workspace mount (only when it differs)
+  ansible.builtin.shell: >-
+    {{ orb_bin }} config set machine.{{ agents_vm_name }}.mounts
+    {{ agents_vm_mount_spec | quote }}
+  register: agents_vm_mount_reconciled
+  when: >-
+    (agents_vm_present | bool) and
+    ((agents_vm_mount_current.stdout | default('') | trim) != (agents_vm_mount_spec))
+
+- name: Restart the agents VM after a mount change (OrbStack applies mounts at boot)
+  ansible.builtin.shell: "{{ orb_bin }} restart {{ agents_vm_name }}"
+  when: >-
+    (agents_vm_present | bool) and
+    ((agents_vm_mount_reconciled.changed | default(false)) | bool)
+
+# The VM plays (further down in this playbook file, as they land) target the
+# machine by name; OrbStack reaches it over its SSH alias `orb` with user = name.
+- name: Add the agents VM to this run's inventory (OrbStack SSH alias)
+  ansible.builtin.add_host:
+    hostname: "{{ agents_vm_name }}"
+    ansible_user: "{{ agents_vm_name }}"
+    ansible_host: orb
+
+- name: Make the newly added host visible to later plays in this run
+  meta: refresh_inventory

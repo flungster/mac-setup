@@ -240,8 +240,7 @@ def test_brew_shellenv_added_to_zprofile_once(bootstrap):
 #
 # A shim named ansible-playbook on PATH records bootstrap's arguments (one line per
 # invocation) and exits 0, so these tests pin what is passed without running the
-# playbooks (their own behaviour has M3/M5 tests). The two opt-in-happy-path tests
-# run once playbooks/agents-vm.yml exists (step 3).
+# playbooks (their own behaviour has M3/M5 tests).
 
 
 def _record_playbook_args(bootstrap):
@@ -287,6 +286,44 @@ def test_agents_vm_not_provisioned_by_default(bootstrap):
     assert len(calls) == 1, f"expected only the site playbook; saw: {calls}"
     assert "playbooks/site.yml" in calls[0] and "agents-vm" not in calls[0], (
         f"default run touched the agents VM playbook: {calls}"
+    )
+
+
+def test_agents_vm_opt_in_runs_the_second_playbook(bootstrap):
+    bootstrap.install_brew()
+    _seed_managed(bootstrap)
+
+    env = _record_playbook_args(bootstrap)
+    env["PROVISION_AGENTS_VM"] = "1"
+
+    _require_ok(bootstrap.run(extra_env=env))
+    calls = _playbook_calls(bootstrap)
+
+    assert len(calls) == 2, f"expected site + agents-vm playbooks; saw: {calls}"
+    assert "playbooks/site.yml" in calls[0], f"site playbook not run first: {calls}"
+    assert "playbooks/agents-vm.yml" in calls[1], f"opt-in not passed through: {calls}"
+    assert "--vault-password-file" not in calls[1], (
+        f"no vault password file given, yet one was passed: {calls}"
+    )
+
+
+def test_agents_vm_opt_in_forwards_vault_password_file(bootstrap):
+    bootstrap.install_brew()
+    _seed_managed(bootstrap)
+
+    vault_file = bootstrap.state_dir / "vault-pass"
+    vault_file.write_text("stub-password\n", encoding="utf-8")
+
+    env = _record_playbook_args(bootstrap)
+    env["PROVISION_AGENTS_VM"] = "1"
+    env["AGENTS_VAULT_PASSWORD_FILE"] = str(vault_file)
+
+    _require_ok(bootstrap.run(extra_env=env))
+    calls = _playbook_calls(bootstrap)
+
+    assert len(calls) == 2, f"expected site + agents-vm playbooks; saw: {calls}"
+    assert "--vault-password-file" in calls[1] and str(vault_file) in calls[1], (
+        f"vault password file not forwarded: {calls}"
     )
 
 

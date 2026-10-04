@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Stub orb for offline playbook tests. State-driven: `machine.<name>=1` marks a
+# machine as existing (plus `machine.<name>.mounts=<spec>`), global settings are
+# stored as plain keys (memory_mib, cpu, machines.expose_ports_to_lan), and
+# `orb.stopped=1` simulates OrbStack not running. Anything unrecognised exits
+# non-zero on purpose so a new CLI call in a playbook fails tests loudly.
+
+STUB_TOOL="orb"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+cmd="${1:-}"
+shift || true
+if [ "$#" -gt 0 ]; then stub_log "$cmd $*"; else stub_log "$cmd"; fi   # e.g. "orb config set memory_mib 12288"
+case "$cmd" in
+  list)
+    if [ "$(stub_get orb.stopped)" = "1" ]; then
+      echo "orb: OrbStack is not running" >&2
+      exit 2
+    fi
+    printf 'NAME     TYPE   STATUS\n'
+    if [ -f "$STUB_STATE_FILE" ]; then
+      grep '^machine\.' "$STUB_STATE_FILE" 2>/dev/null | while IFS='=' read -r key val; do
+        [ "$val" = "1" ] || continue
+        printf '%-8s Linux  running\n' "${key#machine.}"
+      done
+    fi
+    exit 0
+    ;;
+
+  start)
+    stub_set orb.stopped ""
+    exit 0
+    ;;
+
+  create)
+    # orb create [--isolated] [--mount <spec>]... <distro> <name>
+    isolated=""
+    mount_spec=""
+    distro=""
+    name=""
+    prev=""
+    for a in "$@"; do
+      case "$prev" in
+        --mount) mount_spec="$a"; prev=""; continue ;;
+      esac
+      case "$a" in
+        --isolated) isolated=1 ;;
+        --mount) prev="--mount" ;;
+        *) if [ -z "$distro" ]; then distro="$a"; else name="$a"; fi ;;
+      esac
+    done
+    if [ -z "$distro" ] || [ -z "$name" ]; then
+      echo "stub orb: create needs <distro> and <name>: $*" >&2
+      exit 1
+    fi
+    if [ "$(stub_get "machine.$name")" = "1" ]; then
+      echo "orb: machine $name already exists" >&2
+      exit 1
+    fi
+    stub_set "machine.$name" 1
+    [ -n "$isolated" ] && stub_set "machine.$name.isolated" 1
+    [ -n "$mount_spec" ] && stub_set "machine.$name.mounts" "$mount_spec"
+    exit 0
+    ;;
+
+  restart)
+    name="${1:-}"
+    if [ -z "$name" ] || [ "$(stub_get "machine.$name")" != "1" ]; then
+      echo "orb: no machine named $name" >&2
+      exit 1
+    fi
+    stub_set "orb.restarted.$name" "${SECONDS}"
+    exit 0
+    ;;
+
+  config)
+    sub="${1:-}"; key="${2-}"
+    case "$sub" in
+      get)
+        val="$(stub_get "$key")"
+        if [ -z "$val" ]; then
+          echo "orb: unknown or unset config key: $key" >&2
+          exit 1
+        fi
+        printf '%s\n' "$val"
+        ;;
+      set)
+        stub_set "$key" "${3-}"
+        ;;
+      *)
+        echo "stub orb: unhandled config subcommand: $*" >&2; exit 1 ;;
+    esac
+    exit 0
+    ;;
+
+  *)
+    echo "stub orb: unhandled invocation: $cmd $*" >&2
+    exit 1
+    ;;
+esac
