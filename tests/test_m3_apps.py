@@ -101,6 +101,9 @@ def test_fresh_machine_installs_full_inventory(stub_state):
         assert f"brew install {f}" in calls, f"formula was not installed; saw: {calls}"
     # Everything is freshly at latest, so brew has nothing to upgrade.
     assert not [c for c in calls if c.startswith("brew upgrade")], f"unexpected upgrade: {calls}"
+    # OrbStack is NOT part of the Mac baseline (the agents VM installs it itself, on
+    # opt-in — docs/plans/orbstack-opt-in.md): a default run must never mention it.
+    assert not [c for c in calls if "orbstack" in c], f"default run touched OrbStack: {calls}"
 
 
 def test_manually_present_cask_is_left_alone(stub_state):

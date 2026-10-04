@@ -26,8 +26,6 @@
         bin: claude
       - name: codex                # CLI cask: no /Applications bundle to check for
         bin: codex
-      - name: orbstack             # .app is OrbStack.app; hosts the agents VM (playbooks/agents-vm.yml)
-        app_name: OrbStack
 
     formulas:
       - name: opencode             # the AI coding agent this repo is built with

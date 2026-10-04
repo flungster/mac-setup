@@ -34,7 +34,7 @@ Mac Studio M1 Max (32 GB, static IP)
 
 | Topic | Decision | Reason |
 |---|---|---|
-| Hypervisor | OrbStack Linux machine, installed by Ansible (`orbstack` cask in `site.yml`) | Lightweight, fast VirtioFS, scriptable `orb` CLI |
+| Hypervisor | OrbStack Linux machine; installed/updated by the agents-VM playbook itself only when opted in — not part of the Mac baseline (see "Changes since implementation") | Lightweight, fast VirtioFS, scriptable `orb` CLI |
 | VM count | One machine `agents` | Hermes ↔ OpenCode over localhost; no server password or LAN exposure for OpenCode |
 | Isolation | `orb create --isolated --mount ~/agent_workspaces:/workspace` | No `/mnt/mac`, no Mac-host network access, no SSH-agent forwarding |
 | Network isolation | Off (no `--isolate-network`) | Hermes must reach Home Assistant and `llm.internal` |
