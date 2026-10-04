@@ -1,0 +1,145 @@
+---
+# Hermes Agent in the VM: install, config (providers + approvals + Google MCP),
+# dashboard service (LAN behind basic auth) and Telegram gateway (outbound, owner-only).
+# The OpenCode bridge is a Hermes skill so the agent can hand coding work to the
+# loopback OpenCode server. .env is managed per key (lineinfile) so keys added in a
+# dashboard survive re-runs; config.yaml is fully managed (hand edits are overwritten).
+
+- name: Fetch the Hermes Agent installer script (VM)
+  ansible.builtin.get_url:
+    url: "{{ hermes_install_url }}"
+    dest: "{{ agents_vm_root }}/tmp/hermes-install.sh"
+
+# --non-interactive skips the setup wizard and gateway config (this playbook does both).
+# HERMES_HOME pins the checkout where presence is checked; like this Mac's Oh My Zsh,
+# Hermes updates itself afterwards, so a re-run never upgrades it.
+- name: Install Hermes Agent if not present (VM)
+  ansible.builtin.shell: sh {{ agents_vm_root }}/tmp/hermes-install.sh --non-interactive
+  args:
+    creates: "{{ hermes_home }}/hermes-agent"
+  environment:
+    HERMES_HOME: "{{ hermes_home }}"
+    HOME: "{{ agents_vm_home }}"
+
+# --- .env (per-key management) ----------------------------------------------------------
+- name: Read the existing dashboard signing secret (must be stable across re-runs)
+  ansible.builtin.shell: grep '^HERMES_DASHBOARD_BASIC_AUTH_SECRET=' {{ hermes_home }}/.env | cut -d= -f2-
+  register: dashboard_secret_existing
+  failed_when: false
+  changed_when: false
+
+- name: Generate a dashboard signing secret when none exists yet (VM)
+  ansible.builtin.command: >-
+    python3 -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())'
+  register: dashboard_secret_generated
+  changed_when: true
+  when: (dashboard_secret_existing.stdout | default('') | trim) == ''
+
+- name: Build the keys managed in Hermes' .env (VM)
+  ansible.builtin.set_fact:
+    hermes_env: >-
+      {{ {'ANTHROPIC_API_KEY': anthropic_api_key,
+          'HERMES_DASHBOARD_BASIC_AUTH_USERNAME': hermes_dashboard_username | string,
+          'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD': hermes_dashboard_password | string,
+          'HERMES_DASHBOARD_BASIC_AUTH_SECRET': ((dashboard_secret_existing.stdout | default('')) or (dashboard_secret_generated.stdout | default(''))) }
+         | combine({'OMLX_API_KEY': local_llm_api_key} if (local_llm_api_key | default('') != '') else {})
+         | combine({'TELEGRAM_BOT_TOKEN': telegram_bot_token, 'TELEGRAM_ALLOWED_USERS': (telegram_allowed_users | default('') | string)} if ((telegram_bot_token | default('')) != '') else {}) }}
+
+- name: Manage the Hermes .env keys (other keys, e.g. added in a dashboard, survive)
+  ansible.builtin.lineinfile:
+    path: "{{ hermes_home }}/.env"
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    create: yes
+    mode: "0600"
+  loop: "{{ hermes_env | dict2items }}"
+
+# --- config.yaml (fully managed) ----------------------------------------------------------
+- name: Write the Hermes config (providers, approvals, Google MCP registration)
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ hermes_home }}/config.yaml"
+    mode: "0600"
+
+# --- OpenCode bridge skill --------------------------------------------------------------------
+- name: Ensure the opencode-bridge skill dir exists (VM)
+  ansible.builtin.file:
+    path: "{{ hermes_home }}/skills/opencode-bridge"
+    state: directory
+
+- name: Write the opencode-bridge skill (Hermes hands coding work to OpenCode)
+  ansible.builtin.template:
+    src: opencode-bridge.SKILL.md.j2
+    dest: "{{ hermes_home }}/skills/opencode-bridge/SKILL.md"
+    mode: "0644"
+
+# --- dashboard service (root) ---------------------------------------------------------------------
+- name: Write the hermes-dashboard unit file (VM, system scope)
+  ansible.builtin.template:
+    src: hermes-dashboard.service.j2
+    dest: "{{ agents_vm_root }}/etc/systemd/system/hermes-dashboard.service"
+    mode: "0644"
+  become: true
+  register: hermes_dashboard_unit
+
+- name: Reload systemd when the hermes-dashboard unit changed (VM)
+  ansible.builtin.shell: systemctl daemon-reload
+  become: true
+  when: hermes_dashboard_unit.changed | bool
+
+- name: Check whether hermes-dashboard is enabled (VM)
+  ansible.builtin.shell: systemctl is-enabled hermes-dashboard
+  register: hermes_dashboard_enabled_check
+  failed_when: false
+  changed_when: false
+
+- name: Enable and start hermes-dashboard on boot when not already (VM)
+  ansible.builtin.shell: systemctl enable --now hermes-dashboard
+  become: true
+  when: (hermes_dashboard_enabled_check.stdout | default('') | trim) != 'enabled'
+
+- name: Restart hermes-dashboard to pick up its new unit (VM)
+  ansible.builtin.shell: systemctl restart hermes-dashboard
+  become: true
+  when: >-
+    (hermes_dashboard_unit.changed | bool) and
+    ((hermes_dashboard_enabled_check.stdout | default('') | trim) == 'enabled')
+
+# --- Telegram gateway service (root; only when a bot token is configured) ---------------------------
+- name: Write the hermes-gateway unit file (VM, system scope)
+  ansible.builtin.template:
+    src: hermes-gateway.service.j2
+    dest: "{{ agents_vm_root }}/etc/systemd/system/hermes-gateway.service"
+    mode: "0644"
+  become: true
+  register: hermes_gateway_unit
+  when: (telegram_bot_token | default('')) != ''
+
+- name: Reload systemd when the hermes-gateway unit changed (VM)
+  ansible.builtin.shell: systemctl daemon-reload
+  become: true
+  when: >-
+    (telegram_bot_token | default('')) != '' and
+    ((hermes_gateway_unit.changed | default(false)) | bool)
+
+- name: Check whether hermes-gateway is enabled (VM)
+  ansible.builtin.shell: systemctl is-enabled hermes-gateway
+  register: hermes_gateway_enabled_check
+  failed_when: false
+  changed_when: false
+  when: (telegram_bot_token | default('')) != ''
+
+- name: Enable and start hermes-gateway on boot when not already (VM)
+  ansible.builtin.shell: systemctl enable --now hermes-gateway
+  become: true
+  when: >-
+    (telegram_bot_token | default('')) != '' and
+    ((hermes_gateway_enabled_check.stdout | default('') | trim) != 'enabled')
+
+- name: Restart hermes-gateway to pick up its new unit (VM)
+  ansible.builtin.shell: systemctl restart hermes-gateway
+  become: true
+  when: >-
+    (telegram_bot_token | default('')) != '' and
+    ((hermes_gateway_unit.changed | default(false)) | bool) and
+    ((hermes_gateway_enabled_check.stdout | default('') | trim) == 'enabled')

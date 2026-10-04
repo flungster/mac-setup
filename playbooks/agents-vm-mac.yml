@@ -1,0 +1,48 @@
+---
+# Agents VM — Mac side (runs on this Mac): OrbStack ceilings, the isolated machine,
+# the shared workspace folder. Entry point for both halves: playbooks/agents-vm.yml.
+
+- name: Prepare OrbStack and create the agents VM (on this Mac)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - "{{ playbook_dir }}/vars_agents_vm.yml"
+
+  tasks:
+    - name: Check for the agents VM secrets file (template is its .example sibling)
+      ansible.builtin.stat: path="{{ agents_vm_secrets_file }}"
+      register: agents_vm_secrets_stat
+
+    - name: Fail with a pointer to the template when it is missing
+      ansible.builtin.fail:
+        msg: >-
+          Agents VM secrets file not found: {{ agents_vm_secrets_file }}. Copy the template
+          playbooks/secrets/agents-vm-secrets.example.yml to that name, fill in the values
+          and encrypt it (ansible-vault) — see README.md → Agents VM. Then re-run this
+          playbook with --vault-password-file (or AGENTS_VAULT_PASSWORD_FILE via bootstrap).
+      when: not (agents_vm_secrets_stat.stat.exists | default(false))
+
+    - name: Load the agents VM secrets (vaulted or plain — same playbook either way)
+      ansible.builtin.include_vars: file="{{ agents_vm_secrets_file }}"
+
+    - name: Record which required secrets are missing or empty (fill them in per the .example)
+      ansible.builtin.set_fact:
+        agents_vm_missing_secrets: >-
+          {{ [['anthropic_api_key', anthropic_api_key | default('', true)],
+              ['hermes_dashboard_password', hermes_dashboard_password | default('', true)]]
+             | selectattr(1, 'equalto', '') | map(attribute=0) | list }}
+
+    - name: Refuse to provision without the required secrets
+      ansible.builtin.fail:
+        msg: >-
+          Required agents VM secret{{ 's' if (agents_vm_missing_secrets | length) != 1 else '' }}
+          missing or empty: {{ agents_vm_missing_secrets | join(', ') }}. Fill them in
+          playbooks/secrets/agents-vm-secrets.yml (copy the .example next to it), then
+          re-run. See README.md → Agents VM for where each value comes from.
+      when: agents_vm_missing_secrets | length > 0
+
+    - name: Prepare OrbStack and create the agents VM
+      ansible.builtin.include_role:
+        name: orbstack_vm

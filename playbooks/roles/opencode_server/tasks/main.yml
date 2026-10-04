@@ -1,0 +1,75 @@
+---
+# OpenCode as a loopback-only server in the VM, configured for Anthropic plus (when
+# local_llm_models is filled) the oMLX endpoint. The Hermes bridge calls it from inside
+# the VM (opencode run --server http://127.0.0.1:4096); it is deliberately NOT exposed
+# to the LAN — only Hermes' dashboard crosses that boundary, behind basic auth.
+
+- name: Fetch the OpenCode installer script (VM)
+  ansible.builtin.get_url:
+    url: "{{ opencode_install_url }}"
+    dest: "{{ agents_vm_root }}/tmp/opencode-install.sh"
+
+# The official installer lands the binary in ~/.opencode/bin (HOME is pinned to the
+# VM user) and appends a PATH line to its shell rc.
+- name: Install OpenCode if not present (VM)
+  ansible.builtin.shell: sh {{ agents_vm_root }}/tmp/opencode-install.sh
+  args:
+    creates: "{{ agents_vm_home }}/.opencode/bin/opencode"
+  environment:
+    HOME: "{{ agents_vm_home }}"
+
+# Keys live in this env file (0600); opencode.json references them as {env:...} so no
+# secret is written into the config itself. The server unit loads this file.
+- name: Ensure OpenCode's config dir exists (VM)
+  ansible.builtin.file:
+    path: "{{ agents_vm_home }}/.config/opencode"
+    state: directory
+
+- name: Write the OpenCode environment (keys for {env:...} references)
+  ansible.builtin.template:
+    src: opencode.env.j2
+    dest: "{{ agents_vm_home }}/.config/opencode/env"
+    mode: "0600"
+
+- name: Write the OpenCode config (providers, default model, loopback server)
+  ansible.builtin.template:
+    src: opencode.json.j2
+    dest: "{{ agents_vm_home }}/.config/opencode/opencode.json"
+    mode: "0644"
+
+# --- system service (root) ----------------------------------------------------------
+- name: Ensure the systemd unit dir exists (/etc/systemd on a real VM — already there)
+  ansible.builtin.file:
+    path: "{{ agents_vm_root }}/etc/systemd/system"
+    state: directory
+
+- name: Write the opencode-server unit file (VM, system scope)
+  ansible.builtin.template:
+    src: opencode-server.service.j2
+    dest: "{{ agents_vm_root }}/etc/systemd/system/opencode-server.service"
+    mode: "0644"
+  become: true
+  register: opencode_unit
+
+- name: Reload systemd when the opencode-server unit changed (VM)
+  ansible.builtin.shell: systemctl daemon-reload
+  become: true
+  when: opencode_unit.changed | bool
+
+- name: Check whether opencode-server is enabled (VM)
+  ansible.builtin.shell: systemctl is-enabled opencode-server
+  register: opencode_enabled_check
+  failed_when: false
+  changed_when: false
+
+- name: Enable and start opencode-server on boot when not already (VM)
+  ansible.builtin.shell: systemctl enable --now opencode-server
+  become: true
+  when: (opencode_enabled_check.stdout | default('') | trim) != 'enabled'
+
+- name: Restart opencode-server to pick up its new unit (VM)
+  ansible.builtin.shell: systemctl restart opencode-server
+  become: true
+  when: >-
+    (opencode_unit.changed | bool) and
+    ((opencode_enabled_check.stdout | default('') | trim) == 'enabled')

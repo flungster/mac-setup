@@ -1,0 +1,31 @@
+# Managed by mac-setup (playbooks/agents-vm.yml). Hand edits are overwritten on re-run —
+# change the playbook variables (or -e) and re-run instead. 0600: contains secrets
+# when the Google OAuth client is configured below.
+
+model:
+  provider: anthropic
+  default: {{ hermes_default_model }}
+
+approvals:
+  mode: smart   # keep dangerous-command approval on — the prompt-injection guardrail
+
+{% if local_llm_models | length > 0 %}providers:
+  omlx:
+    api: {{ local_llm_base_url }}
+{% if local_llm_api_key | default('') %}    key_env: OMLX_API_KEY
+{% endif -%}{% else -%}
+
+# No omlx provider yet: local_llm_models is empty. Add model IDs (from your
+# oMLX /v1/models) and re-run to enable the local endpoint.
+
+{% endif -%}
+{%- if (google_oauth_client_id | default('') != '') and (google_oauth_client_secret | default('') != '') -%}
+mcp_servers:
+  google_workspace:
+    command: "{{ agents_vm_home }}/.local/bin/workspace-mcp"
+    args: ["--read-only", "--tools"{% for t in google_workspace_tools %}, "{{ t }}"{% endfor %}]
+    env:
+      GOOGLE_OAUTH_CLIENT_ID: "{{ google_oauth_client_id }}"
+      GOOGLE_OAUTH_CLIENT_SECRET: {{ google_oauth_client_secret | quote }}
+
+{% endif -%}

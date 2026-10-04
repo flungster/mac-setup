@@ -1,0 +1,47 @@
+---
+# Agents VM — Linux side (runs inside the machine, reached through OrbStack's SSH
+# alias: host `orb`, user = machine name; playbooks/agents-vm-mac.yml adds that
+# host to the run when both halves are imported by playbooks/agents-vm.yml).
+# Entry point for both halves: playbooks/agents-vm.yml.
+
+- name: Provision the agents VM (Linux side)
+  hosts: "{{ agents_vm_name }}"
+  gather_facts: false
+
+  vars_files:
+    - "{{ playbook_dir }}/vars_agents_vm.yml"
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3   # Ubuntu noble; tests override with the venv
+
+  tasks:
+    - name: Load the agents VM secrets (again — play variables do not cross plays)
+      ansible.builtin.include_vars: file="{{ agents_vm_secrets_file }}"
+
+    - name: Base packages and uv (VM)
+      ansible.builtin.include_role:
+        name: agents_base
+
+    - name: GitHub access for the agents (VM)
+      ansible.builtin.include_role:
+        name: github_access
+
+    - name: OpenCode server with Anthropic + oMLX (VM)
+      ansible.builtin.include_role:
+        name: opencode_server
+
+    # Same skills set as this Mac, installed for the VM user; OpenCode reads them from
+    # global ~/.agents/skills on its own, so no --agent targets here.
+    - name: Matt Pocock skills for the VM user (shared role)
+      ansible.builtin.include_role:
+        name: matt_skills
+      vars:
+        skills_home: "{{ agents_vm_home }}"
+
+    - name: Hermes Agent with dashboard, Telegram gateway and OpenCode bridge (VM)
+      ansible.builtin.include_role:
+        name: hermes_agent
+
+    - name: Google Workspace MCP (read-only Gmail + Calendar) for Hermes
+      ansible.builtin.include_role:
+        name: google_workspace_mcp

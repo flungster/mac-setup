@@ -1,0 +1,13 @@
+---
+# workspace-mcp (taylorwilsdon/google_workspace_mcp) as a uv tool in the VM. Hermes
+# launches it per session via its mcp_servers entry (written by hermes_agent's config);
+# no service of its own — stdio mode keeps it on Hermes' side, not the network.
+# Read-only for now (--read-only is enforced by the server's tool selection, not
+# instructions); enabling sending later = drop --read-only and re-consent in Google.
+
+- name: Install workspace-mcp as a uv tool (VM)
+  ansible.builtin.shell: "{{ agents_vm_home }}/.local/bin/uv tool install workspace-mcp"
+  args:
+    creates: "{{ agents_vm_home }}/.local/bin/workspace-mcp"
+  environment:
+    HOME: "{{ agents_vm_home }}"

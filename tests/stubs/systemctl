@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Stub systemctl for offline playbook tests. Tracks per-unit state:
+# service.<unit>.enabled / .active (service.<unit> is the unit name, dashes included).
+# Implements daemon-reload, enable [--now] <unit>, restart <unit> and is-enabled.
+
+STUB_TOOL="systemctl"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+cmd="${1:-}"
+shift || true
+if [ "$#" -gt 0 ]; then stub_log "$cmd $*"; else stub_log "$cmd"; fi
+
+case "$cmd" in
+  daemon-reload)
+    exit 0
+    ;;
+
+  enable | disable)
+    now=""
+    unit="${1:-}"
+    [ "$unit" = "--now" ] && { now=1; unit="${2:-}"; }
+    if [ -z "$unit" ]; then echo "stub systemctl: $cmd needs a unit" >&2; exit 1
+    fi
+    if [ "$cmd" = "enable" ]; then stub_set "service.$unit.enabled" 1; else stub_set "service.$unit.enabled" ""; fi
+    [ -n "$now" ] && stub_set "service.$unit.active" 1
+    exit 0
+    ;;
+
+  restart)
+    unit="${1:-}"
+    [ -n "$unit" ] || { echo "stub systemctl: restart needs a unit" >&2; exit 1; }
+    stub_set "service.$unit.active" "${SECONDS}"
+    exit 0
+    ;;
+
+  is-enabled)
+    unit="${1:-}"
+    if [ "$(stub_get "service.$unit.enabled")" = "1" ]; then printf 'enabled\n'; exit 0
+    fi
+    printf 'disabled\n' >&2
+    exit 1
+    ;;
+
+  *)
+    echo "stub systemctl: unhandled invocation: $cmd $*" >&2
+    exit 1
+    ;;
+esac

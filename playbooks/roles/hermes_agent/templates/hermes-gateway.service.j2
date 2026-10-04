@@ -1,0 +1,13 @@
+[Unit]
+Description=Hermes Agent messaging gateway (agents VM) — Telegram, outbound only, owner user ID whitelisted
+After=network-online.target
+
+[Service]
+User={{ agents_vm_user }}
+EnvironmentFile={{ hermes_home }}/.env
+ExecStart={{ agents_vm_home }}/.local/bin/hermes gateway
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,64 @@
+---
+# GitHub access for the agents: gh CLI (pinned .deb), token login, git identity and
+# clones of the managed repos into /workspace. The .deb install needs root; everything
+# else runs as the VM user with HOME pinned. When github_token is empty the whole role
+# degrades to identity + SSH-style URL rewriting (git ops need a credential of some kind,
+# so clones are skipped — the agents can add access later).
+
+- name: Download the GitHub CLI .deb (pinned version)
+  ansible.builtin.get_url:
+    url: "{{ gh_deb_url }}"
+    dest: "{{ agents_vm_root }}/tmp/gh.deb"
+
+- name: Install GitHub CLI (VM)
+  ansible.builtin.shell: dpkg -i {{ agents_vm_root }}/tmp/gh.deb
+  become: true
+
+- name: Check whether gh is already logged in (a token lives on the VM only)
+  ansible.builtin.shell: gh auth status
+  register: gh_auth_status
+  failed_when: false
+  changed_when: false
+
+# The token goes to gh over stdin (never argv, never a file in /workspace). To rotate
+# it: delete {{ agents_vm_home }}/.config/gh on the VM and re-run.
+- name: Log in to GitHub with the fine-grained PAT (VM)
+  ansible.builtin.shell: |
+    set -eu
+    printf '%s' "$GITHUB_TOKEN" | gh auth login --with-token --hostname github.com
+  environment:
+    GITHUB_TOKEN: "{{ github_token }}"
+    HOME: "{{ agents_vm_home }}"
+  when: (github_token | default('') != '') and ((gh_auth_status.rc | default(1)) != 0)
+
+- name: Point git at gh's credential helper (VM)
+  ansible.builtin.shell: gh auth setup-git
+  environment:
+    HOME: "{{ agents_vm_home }}"
+  when: github_token | default('') != ''
+
+- name: Set the git identity for agent commits (VM)
+  ansible.builtin.shell: |
+    set -eu
+    git config --global user.name {{ git_user_name | quote }}
+    git config --global user.email "{{ git_user_email }}"
+  environment:
+    HOME: "{{ agents_vm_home }}"
+
+# SSH-style clone URLs (git@github.com:...) resolve through HTTPS + the PAT, so repos
+# quoted that way still clone.
+- name: Make SSH-style GitHub URLs work over HTTPS (VM)
+  ansible.builtin.shell: git config --global url.https://github.com/.insteadOf "git@github.com:"
+  environment:
+    HOME: "{{ agents_vm_home }}"
+
+- name: Clone the managed repos into /workspace (only when absent)
+  ansible.builtin.shell: >-
+    git clone https://github.com/{{ item }}.git
+    {{ agents_vm_workspace_guest_path }}/{{ item | split('/') | last }}
+  loop: "{{ agent_repos }}"
+  args:
+    creates: "{{ agents_vm_workspace_guest_path }}/{{ item | split('/') | last }}/.git"
+  environment:
+    HOME: "{{ agents_vm_home }}"
+  when: github_token | default('') != ''

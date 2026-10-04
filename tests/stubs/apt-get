@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Stub apt-get for offline playbook tests. `install` tracks package state (pkg.<p>=1)
+# and reports "N newly installed" like apt, so the playbook's changed detection has
+# something true to read. `update` is a no-op. Anything else exits non-zero on purpose.
+
+STUB_TOOL="apt-get"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+cmd="${1:-}"
+shift || true
+if [ "$#" -gt 0 ]; then stub_log "$cmd $*"; else stub_log "$cmd"; fi
+
+case "$cmd" in
+  update)
+    exit 0
+    ;;
+
+  install)
+    missing=0
+    for a in "$@"; do
+      case "$a" in
+        -*) continue ;;  # flags (-y, --no-install-recommends) carry no package
+      esac
+      if [ "$(stub_get "pkg.$a")" != "1" ]; then
+        missing=$((missing + 1))
+      fi
+      stub_set "pkg.$a" 1
+    done
+    printf 'Reading package lists...\nBuilding dependency tree...\n'
+    printf '0 upgraded, %d newly installed, 0 to remove and 0 not upgraded.\n' "$missing"
+    exit 0
+    ;;
+
+  *)
+    echo "stub apt-get: unhandled invocation: $cmd $*" >&2
+    exit 1
+    ;;
+esac

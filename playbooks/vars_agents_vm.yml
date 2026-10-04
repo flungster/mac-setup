@@ -1,0 +1,57 @@
+---
+# Knobs for playbooks/agents-vm.yml (shared by the Mac-side and VM-side plays).
+# Everything here is non-secret; secrets live in playbooks/secrets/ (see the .example).
+# Override any of them with -e when you need different values.
+
+# --- secrets file ---------------------------------------------------------------
+# The vault file (encrypted in real use; see the .example next to it). A missing
+# file fails with a pointer to that template; a present-but-incomplete one fails at
+# the "required secrets" check in play 1. Tests pass a plain (unencrypted) file via
+# -e agents_vm_secrets_file=... — the playbook treats vaulted and plain alike.
+agents_vm_secrets_file: "{{ playbook_dir }}/secrets/agents-vm-secrets.yml"
+
+# --- machine and hypervisor (this Mac) -------------------------------------------
+agents_vm_name: agents            # OrbStack machine name; also the SSH user (ssh <name>@orb)
+agents_vm_distro: ubuntu:noble    # Ubuntu 24.04 ARM64
+agents_vm_memory_mib: 12288       # OrbStack-wide ceiling (32 GB Mac; macOS keeps the rest)
+agents_vm_cpu: 6                  # OrbStack-wide CPU ceiling, in cores (orb CLI unit)
+agents_vm_workspace_host_path: "{{ lookup('env', 'HOME') }}/agent_workspaces"
+agents_vm_workspace_guest_path: /workspace
+# OrbStack mount spec (host path : guest path), one pair for this machine.
+agents_vm_mount_spec: "{{ agents_vm_workspace_host_path }}{{ ':' ~ agents_vm_workspace_guest_path }}"
+
+# --- VM internals -------------------------------------------------------------------
+agents_vm_user: "{{ agents_vm_name }}"   # OrbStack's SSH user is the machine name
+agents_vm_home: "/home/{{ agents_vm_user }}"
+# Prefix for "system" paths (units, deb cache, installer downloads): / on the real VM;
+# a tmp dir in tests so nothing under test ever touches this Mac's /etc or /usr.
+agents_vm_root: /
+
+# --- base packages (VM) ------------------------------------------------------------------
+agents_vm_base_packages: [git, curl, jq, ca-certificates, python3-venv, nodejs, npm]
+
+# --- AI providers ---------------------------------------------------------------------------
+hermes_default_model: claude-sonnet-4-6            # Hermes' main model (Anthropic)
+opencode_default_model: anthropic/claude-sonnet-4-5  # OpenCode's default
+local_llm_base_url: http://llm.internal:8000/v1    # oMLX (OpenAI-compatible), on the other Studio
+local_llm_models: []      # model IDs from your oMLX /v1/models; empty = Anthropic only
+
+# --- services -------------------------------------------------------------------------------
+opencode_port: 4096            # VM-local only; the Hermes bridge calls it from inside
+hermes_dashboard_port: 9119    # Hermes' default; LAN-reachable via the Mac's IP
+hermes_dashboard_username: admin
+
+# --- GitHub -----------------------------------------------------------------------------------
+git_user_name: "Felix Lung"
+git_user_email: felix.lung@gmail.com
+agent_repos: [flungster/mac-setup, flungster/health-tracker]
+gh_version: "2.63.2"           # pinned; bump when convenient (old releases stay on GitHub)
+gh_deb_url: "https://github.com/cli/cli/releases/download/v{{ gh_version }}/gh_{{ gh_version }}_linux_arm64.deb"
+
+# --- Google Workspace MCP -----------------------------------------------------------------------
+google_workspace_tools: [gmail, calendar]  # read-only for now; sending = drop --read-only + re-consent
+
+# --- installer URLs (overridable in tests with file://...) ------------------------------------------
+hermes_install_url: https://hermes-agent.nousresearch.com/install.sh
+opencode_install_url: https://opencode.ai/install
+uv_install_url: https://astral.sh/uv/install.sh

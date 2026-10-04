@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Stub dpkg for offline playbook tests. Only `dpkg -i <file>` is used (gh's .deb);
+# it records the install by file name so re-runs are assertable.
+
+STUB_TOOL="dpkg"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+cmd="${1:-}"
+shift || true
+if [ "$#" -gt 0 ]; then stub_log "$cmd $*"; else stub_log "$cmd"; fi
+
+case "$cmd" in
+  -i)
+    file="${1:-}"
+    if [ ! -f "$file" ]; then
+      echo "dpkg: cannot access archive '$file'" >&2
+      exit 1
+    fi
+    stub_set "deb.$(basename "$file")" "${SECONDS}"
+    exit 0
+    ;;
+
+  *)
+    echo "stub dpkg: unhandled invocation: $cmd $*" >&2
+    exit 1
+    ;;
+esac

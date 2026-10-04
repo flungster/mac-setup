@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Stub git for offline playbook tests. Implements the calls the agents-VM roles make:
+# `config --global <key> <value>` (writes a real ~/.gitconfig so assertions can read
+# it, and records the value in state) and `clone <url> <dir>` (plants a fake .git so
+# the creates-gate and re-runs behave). Anything else exits non-zero.
+
+STUB_TOOL="git"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+cmd="${1:-}"
+shift || true
+if [ "$#" -gt 0 ]; then stub_log "$cmd $*"; else stub_log "$cmd"; fi
+
+case "$cmd" in
+  config)
+    # only `git config --global <key> <value>` is used; pin that shape
+    if [ "${1:-}" != "--global" ] || [ "$#" -ne 3 ]; then
+      echo "stub git: unhandled config invocation: $*" >&2; exit 1
+    fi
+    key="${2:-}"; value="${3:-}"
+    home="${HOME:?stub git requires HOME}"
+    case "$key" in
+      user.*) printf '[user]\n\t%s = %s\n' "${key#*.}" "$value" >>"$home/.gitconfig" ;;
+      url.*)  sec="${key#url.}"; printf '[url "%s"]\n\t%s = %s\n' "${sec%.*}" "${key##*.}" "$value" >>"$home/.gitconfig" ;;
+      *) echo "stub git: unhandled config key: $key" >&2; exit 1 ;;
+    esac
+    stub_set "gitcfg.${key//\//-}" "$value"   # '/' and ':' are legal in state keys, but keep it simple
+    exit 0
+    ;;
+
+  clone)
+    url=""; dir=""
+    for a in "$@"; do
+      case "$a" in
+        http*) [ -z "$url" ] && url="$a" ;;
+        /*)    [ -z "$dir" ] && dir="$a" ;;
+      esac
+    done
+    if [ -z "$url" ] || [ -z "$dir" ]; then
+      echo "stub git: clone needs <url> and <dir>: $*" >&2; exit 1
+    fi
+    mkdir -p "$dir/.git"
+    printf 'stub clone of %s\n' "$url" >"$dir/.git/origin-url"
+    exit 0
+    ;;
+
+  *)
+    echo "stub git: unhandled invocation: $cmd" >&2; exit 1
+    ;;
+esac

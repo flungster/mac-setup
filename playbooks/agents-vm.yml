@@ -8,97 +8,10 @@
 #   ansible-playbook -i playbooks/hosts --vault-password-file <file> playbooks/agents-vm.yml
 # Re-running is the update path; nothing here recreates what already exists.
 #
-# Play 1 runs on this Mac (OrbStack ceilings + the machine itself). The Linux side
-# is provisioned by further plays in this file, which reach the VM through OrbStack's
-# SSH alias (ssh <name>@orb; user = machine name).
+# Two halves, in order: the Mac side (OrbStack ceilings + creating the machine),
+# then the Linux side inside it — base packages and GitHub access, OpenCode server,
+# Matt Pocock skills, Hermes Agent (dashboard + Telegram gateway) and read-only
+# Gmail/Calendar via workspace-mcp.
 
-- name: Prepare OrbStack and create the agents VM (on this Mac)
-  hosts: localhost
-  connection: local
-  gather_facts: false
-
-  vars:
-    # The vault file (encrypted in real use; see the .example next to it). A missing
-    # file fails with a pointer to that template; a present-but-incomplete one fails
-    # at the "required secrets" check below. Tests pass a plain (unencrypted) file via
-    # -e agents_vm_secrets_file=... — the playbook treats vaulted and plain alike.
-    agents_vm_secrets_file: "{{ playbook_dir }}/secrets/agents-vm-secrets.yml"
-
-    # --- machine and hypervisor (this Mac) ------------------------------------
-    agents_vm_name: agents            # OrbStack machine name; also the SSH user (ssh <name>@orb)
-    agents_vm_distro: ubuntu:noble    # Ubuntu 24.04 ARM64
-    agents_vm_memory_mib: 12288       # OrbStack-wide ceiling (32 GB Mac; macOS keeps the rest)
-    agents_vm_cpu: 6                  # OrbStack-wide CPU ceiling, in cores (orb CLI unit)
-    agents_vm_workspace_host_path: "{{ lookup('env', 'HOME') }}/agent_workspaces"
-    agents_vm_workspace_guest_path: /workspace
-    # OrbStack mount spec (host path : guest path), one pair for this machine.
-    agents_vm_mount_spec: "{{ agents_vm_workspace_host_path }}{{ ':' ~ agents_vm_workspace_guest_path }}"
-
-    # --- VM internals -----------------------------------------------------------
-    agents_vm_user: "{{ agents_vm_name }}"   # OrbStack's SSH user is the machine name
-    agents_vm_home: "/home/{{ agents_vm_user }}"
-    # Prefix for "system" paths (units, deb cache): / on the real VM; a tmp dir in tests
-    # so nothing under test ever touches this Mac's /etc or /usr.
-    agents_vm_root: /
-
-    # --- AI providers -------------------------------------------------------------
-    hermes_default_model: claude-sonnet-4-6          # Hermes' main model (Anthropic); override with -e
-    opencode_default_model: anthropic/claude-sonnet-4-5  # OpenCode's default; override with -e
-    local_llm_base_url: http://llm.internal:8000/v1  # oMLX (OpenAI-compatible), on the other Studio
-    local_llm_models: []      # model IDs from your oMLX /v1/models; empty = Anthropic only
-
-    # --- services -------------------------------------------------------------------
-    opencode_port: 4096            # VM-local only; the Hermes bridge calls it from inside
-    hermes_dashboard_port: 9119    # Hermes' default; LAN-reachable via the Mac's IP
-    hermes_dashboard_username: admin
-
-    # --- GitHub -----------------------------------------------------------------------
-    git_user_name: "Felix Lung"
-    git_user_email: felix.lung@gmail.com
-    agent_repos: [flungster/mac-setup, flungster/health-tracker]
-    gh_version: "2.63.2"           # pinned; bump when convenient (old releases stay on GitHub)
-
-    # --- Google Workspace MCP -------------------------------------------------------------
-    google_workspace_tools: [gmail, calendar]  # read-only for now; sending = drop --read-only + re-consent
-
-    # --- installer URLs (overridable in tests with file://...) ------------------------------
-    hermes_install_url: https://hermes-agent.nousresearch.com/install.sh
-    opencode_install_url: https://opencode.ai/install
-    uv_install_url: https://astral.sh/uv/install.sh
-
-  tasks:
-    - name: Check for the agents VM secrets file (template is its .example sibling)
-      ansible.builtin.stat: path="{{ agents_vm_secrets_file }}"
-      register: agents_vm_secrets_stat
-
-    - name: Fail with a pointer to the template when it is missing
-      ansible.builtin.fail:
-        msg: >-
-          Agents VM secrets file not found: {{ agents_vm_secrets_file }}. Copy the template
-          playbooks/secrets/agents-vm-secrets.example.yml to that name, fill in the values
-          and encrypt it (ansible-vault) — see README.md → Agents VM. Then re-run this
-          playbook with --vault-password-file (or AGENTS_VAULT_PASSWORD_FILE via bootstrap).
-      when: not (agents_vm_secrets_stat.stat.exists | default(false))
-
-    - name: Load the agents VM secrets (vaulted or plain — same playbook either way)
-      ansible.builtin.include_vars: file="{{ agents_vm_secrets_file }}"
-
-    - name: Record which required secrets are missing or empty (fill them in per the .example)
-      ansible.builtin.set_fact:
-        agents_vm_missing_secrets: >-
-          {{ [['anthropic_api_key', anthropic_api_key | default('', true)],
-              ['hermes_dashboard_password', hermes_dashboard_password | default('', true)]]
-             | selectattr(1, 'equalto', '') | map(attribute=0) | list }}
-
-    - name: Refuse to provision without the required secrets
-      ansible.builtin.fail:
-        msg: >-
-          Required agents VM secret{{ 's' if (agents_vm_missing_secrets | length) != 1 else '' }}
-          missing or empty: {{ agents_vm_missing_secrets | join(', ') }}. Fill them in
-          playbooks/secrets/agents-vm-secrets.yml (copy the .example next to it), then
-          re-run. See README.md → Agents VM for where each value comes from.
-      when: agents_vm_missing_secrets | length > 0
-
-    - name: Prepare OrbStack and create the agents VM
-      ansible.builtin.include_role:
-        name: orbstack_vm
+- import_playbook: playbooks/agents-vm-mac.yml
+- import_playbook: playbooks/agents-vm-linux.yml

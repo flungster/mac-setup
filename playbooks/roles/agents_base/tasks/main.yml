@@ -1,0 +1,34 @@
+---
+# VM base: the packages both agents need (git for repos, nodejs/npm for the skills
+# CLI and OpenCode) plus uv. apt is idempotent by its own bookkeeping — the changed
+# detection reads "N newly installed" from apt's summary, so a steady-state re-run
+# reports changed=0. System-level work uses become (OrbStack's login user has
+# passwordless sudo); everything else runs as the VM user with HOME pinned.
+
+- name: Ensure the installer scratch dir exists (always /tmp on a real VM)
+  ansible.builtin.file:
+    path: "{{ agents_vm_root }}/tmp"
+    state: directory
+
+- name: Install base packages (idempotent via apt's own bookkeeping)
+  ansible.builtin.shell: |
+    set -eu
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y --no-install-recommends {{ agents_vm_base_packages | join(' ') }}
+  become: true
+  register: base_apt_install
+  changed_when: (base_apt_install.stdout | default('')) is search('\b[1-9]\d* newly installed')
+
+# The official installer lands uv in ~/.local/bin (HOME is pinned to the VM user).
+- name: Fetch the uv installer script (VM)
+  ansible.builtin.get_url:
+    url: "{{ uv_install_url }}"
+    dest: "{{ agents_vm_root }}/tmp/uv-install.sh"
+
+- name: Install uv if not present (VM)
+  ansible.builtin.shell: sh {{ agents_vm_root }}/tmp/uv-install.sh
+  args:
+    creates: "{{ agents_vm_home }}/.local/bin/uv"
+  environment:
+    HOME: "{{ agents_vm_home }}"

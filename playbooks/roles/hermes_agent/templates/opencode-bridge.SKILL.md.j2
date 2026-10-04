@@ -1,0 +1,23 @@
+---
+name: opencode-bridge
+description: Hand a coding task to the OpenCode server running in this VM (loopback only) and return its result. Use when work should be done with OpenCode, or on the /workspace repos through it.
+---
+
+# OpenCode bridge
+
+OpenCode runs as a local server on this VM (loopback only, port {{ opencode_port }}).
+Run tasks against it with its CLI pointed at the server:
+
+```sh
+cd /workspace/<repo>   # repos live in the shared workspace folder
+opencode run --server http://127.0.0.1:{{ opencode_port }} "<task>"
+```
+
+Notes for the agent:
+- The command blocks until OpenCode finishes; its stdout is the result — relay it.
+- Pin a model when asked: add `-m <provider/model>`. Available providers are in this
+  VM's ~/.config/opencode/opencode.json (anthropic, and omlx when configured).
+- OpenCode's own skills live in ~/.agents/skills; keep them out of Hermes' view.
+- Keep tasks scoped: one repo, one clear instruction. Multi-step work is fine —
+  OpenCode plans and executes inside its own session, bounded by the permissions in
+  this VM's opencode.json.
