@@ -1,0 +1,26 @@
+---
+# Matt Pocock's agent skills, installed with the open `skills` CLI (needs node).
+# Shared by this Mac and the agents VM so both track the same set. Callers pass:
+#   skills_home         - home dir the skills install into (Mac: $HOME; VM: /home/<user>)
+#   matt_skills_agents  - which agent targets to install for (Mac: codex + claude-code;
+#                         VM: none — OpenCode reads global ~/.agents/skills on its own)
+
+skills_cli_package: skills@latest
+matt_skills_source: mattpocock/skills
+
+# The installer puts one shared set at <home>/.agents/skills for OpenCode/Codex and
+# symlinks it into Claude Code's <home>/.claude/skills when that agent is targeted.
+# OpenCode is therefore never an explicit --agent target: it already reads global
+# ~/.agents/skills, and targeting it too would expose the same skills to OpenCode
+# from both .agents and .claude. Presence is that marker pair (single marker when
+# Claude Code isn't targeted); a managed install also has the lock below, which
+# re-runs use for `skills update` change detection. @latest is deliberate: this
+# inventory tracks the newest release, not a pinned one.
+matt_skills_marker_paths: >-
+  {{ [skills_home ~ '/.agents/skills/setup-matt-pocock-skills/SKILL.md']
+     + ([skills_home ~ '/.claude/skills/setup-matt-pocock-skills/SKILL.md']
+        if 'claude-code' in (matt_skills_agents | default([])) else []) }}
+matt_skills_lock: "{{ skills_home }}/.agents/.skill-lock.json"
+
+# Flatten to CLI flags; agent ids never contain spaces.
+matt_skills_agent_flags: "{{ (matt_skills_agents | default([])) | map('regex_replace', '^(.*)$', '--agent \\1') | join(' ') }}"

@@ -49,24 +49,13 @@
     oh_my_zsh_install_url: https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
     oh_my_zsh_installer: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) }}/oh-my-zsh-install.sh"
 
-    # Matt Pocock's agent skills, installed with the open `skills` CLI (needs node).
-    # The installer puts one shared set at ~/.agents/skills for Codex/OpenCode and
-    # symlinks it into Claude Code's ~/.claude/skills. OpenCode is therefore not an
-    # explicit --agent target: it already reads global ~/.agents/skills, and targeting
-    # it too would expose the same skills to OpenCode from both .agents and .claude.
-    # Presence is that marker pair; a managed install also has the lock below, which
-    # re-runs use for `skills update` change detection. @latest is deliberate: this
-    # inventory tracks the newest release, not a pinned one.
-    skills_cli_package: skills@latest
-    matt_skills_source: mattpocock/skills
-    skills_home: "{{ lookup('env', 'HOME') }}"
-    matt_skills_marker_paths:
-      - "{{ skills_home }}/.agents/skills/setup-matt-pocock-skills/SKILL.md"
-      - "{{ skills_home }}/.claude/skills/setup-matt-pocock-skills/SKILL.md"
-    matt_skills_lock: "{{ skills_home }}/.agents/.skill-lock.json"
-    matt_skills_agents: [codex, claude-code]
-    # Flatten to CLI flags; agent ids never contain spaces.
-    matt_skills_agent_flags: "{{ matt_skills_agents | map('regex_replace', '^(.*)$', '--agent \\1') | join(' ') }}"
+    # Matt Pocock's agent skills: installed and kept current by the shared matt_skills
+    # role (the agents VM installs the same set for OpenCode, see playbooks/agents-vm.yml).
+    # One shared set at ~/.agents/skills for Codex/OpenCode, symlinked into Claude Code's
+    # ~/.claude/skills; OpenCode is deliberately not an --agent target (it already reads
+    # global ~/.agents/skills). Presence is that marker pair; a managed install also has
+    # the lock re-runs use for `skills update` change detection. @latest is deliberate:
+    # this inventory tracks the newest release, not a pinned one.
 
   tasks:
     - name: Detect app-bundle casks already present (including manual installs)
@@ -185,35 +174,9 @@
 
     # A partial install is repaired by running the installer; a manual full install
     # (both markers, no lock) is left entirely alone — ADR-0001.
-    - name: Check the Matt Pocock skill markers (ADR-0001)
-      ansible.builtin.stat: path="{{ item }}"
-      loop: "{{ matt_skills_marker_paths }}"
-      register: matt_skill_markers
-
-    - name: Record whether the Matt Pocock skills are present (ADR-0001)
-      ansible.builtin.set_fact:
-        matt_skills_present: "{{ (matt_skill_markers.results | selectattr('stat.exists') | list | length) == (matt_skills_marker_paths | length) }}"
-
-    - name: Install the Matt Pocock skills if not present
-      ansible.builtin.shell: >-
-        npx -y {{ skills_cli_package }} add {{ matt_skills_source | quote }} --global
-        --skill '*' {{ matt_skills_agent_flags }} --yes
-      when: not (matt_skills_present | bool)
-
-    - name: Check the Matt Pocock skills lock (managed installs have one)
-      ansible.builtin.stat: path="{{ matt_skills_lock }}"
-      register: matt_skills_lock_state
-
-    - name: Update the Matt Pocock skills if present (re-runs are the update path)
-      ansible.builtin.shell: |
-        set -eu
-        lock={{ matt_skills_lock | quote }}
-        before="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$lock" 2>/dev/null || true)"
-        npx -y {{ skills_cli_package }} update --global --yes
-        after="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$lock")"
-        if [ "${before:-}" != "$after" ]; then echo SKILLS_UPDATED; else echo SKILLS_CURRENT; fi
-      when: >-
-        (matt_skills_present | bool) and
-        (matt_skills_lock_state.stat.exists | default(false))
-      changed_when: "'SKILLS_UPDATED' in (matt_skills_update.stdout | default(''))"
-      register: matt_skills_update
+    - name: Install and update the Matt Pocock skills (shared role)
+      ansible.builtin.include_role:
+        name: matt_skills
+      vars:
+        skills_home: "{{ lookup('env', 'HOME') }}"
+        matt_skills_agents: [codex, claude-code]

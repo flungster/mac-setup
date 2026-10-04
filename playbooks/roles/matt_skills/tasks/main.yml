@@ -1,0 +1,43 @@
+---
+# Shared Matt Pocock skills install/update. Behaviour (and the pinned npx calls)
+# are identical on every machine; only skills_home and matt_skills_agents vary.
+
+- name: Check the Matt Pocock skill markers (ADR-0001)
+  ansible.builtin.stat: path="{{ item }}"
+  loop: "{{ matt_skills_marker_paths }}"
+  register: matt_skill_markers
+
+- name: Record whether the Matt Pocock skills are present (ADR-0001)
+  ansible.builtin.set_fact:
+    matt_skills_present: "{{ (matt_skill_markers.results | selectattr('stat.exists') | list | length) == (matt_skills_marker_paths | length) }}"
+
+# A partial install is repaired by running the installer; a manual full install
+# (markers, no lock) is left entirely alone — ADR-0001. HOME pins the install
+# location (on this Mac skills_home IS $HOME; in the agents VM it is /home/<user>).
+- name: Install the Matt Pocock skills if not present
+  ansible.builtin.shell: >-
+    npx -y {{ skills_cli_package }} add {{ matt_skills_source | quote }} --global
+    --skill '*' {{ (matt_skills_agent_flags ~ ' ') if matt_skills_agent_flags | length > 0 else '' }}--yes
+  environment:
+    HOME: "{{ skills_home }}"
+  when: not (matt_skills_present | bool)
+
+- name: Check the Matt Pocock skills lock (managed installs have one)
+  ansible.builtin.stat: path="{{ matt_skills_lock }}"
+  register: matt_skills_lock_state
+
+- name: Update the Matt Pocock skills if present (re-runs are the update path)
+  ansible.builtin.shell: |
+    set -eu
+    lock={{ matt_skills_lock | quote }}
+    before="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$lock" 2>/dev/null || true)"
+    npx -y {{ skills_cli_package }} update --global --yes
+    after="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$lock")"
+    if [ "${before:-}" != "$after" ]; then echo SKILLS_UPDATED; else echo SKILLS_CURRENT; fi
+  environment:
+    HOME: "{{ skills_home }}"
+  when: >-
+    (matt_skills_present | bool) and
+    (matt_skills_lock_state.stat.exists | default(false))
+  changed_when: "'SKILLS_UPDATED' in (matt_skills_update.stdout | default(''))"
+  register: matt_skills_update
