@@ -435,6 +435,12 @@ OPENCODE_INSTALLER_BODY = (
     "chmod +x \"$HOME/.opencode/bin/opencode\"\n"
 )
 
+CLAUDE_INSTALLER_BODY = (
+    "mkdir -p \"$HOME/.local/bin\"\n"
+    'printf \'#!/bin/sh\\n# stub claude binary\\n\' >"$HOME/.local/bin/claude"\n'
+    "chmod +x \"$HOME/.local/bin/claude\"\n"
+)
+
 # The fake `uv` binary doubles as the stub for these tests: it records its calls in
 # the shared invocation log (same format as tests/stubs/*) and implements `uv tool
 # install <pkg>` the way real uv does (entry-point binary under $HOME/.local/bin).
@@ -495,6 +501,7 @@ def _run_vm(stub_state, secrets_path=None, extra_vars=(), with_installers=True):
             f"hermes_install_url={_fake_installer(stub_state, 'hermes', HERMES_INSTALLER_BODY)}",
             f"opencode_install_url={_fake_installer(stub_state, 'opencode', OPENCODE_INSTALLER_BODY)}",
             f"uv_install_url={_fake_installer(stub_state, 'uv', UV_INSTALLER_BODY)}",
+            f"claude_install_url={_fake_installer(stub_state, 'claude', CLAUDE_INSTALLER_BODY)}",
         ]
     path = (
         f"{_gh_shim(stub_state)}{os.pathsep}{STUBS_DIR}{os.pathsep}"
@@ -548,6 +555,7 @@ def test_parent_playbook_imports_resolve_and_both_halves_run(stub_state):
             f"hermes_install_url={_fake_installer(stub_state, 'hermes', HERMES_INSTALLER_BODY)}",
             f"opencode_install_url={_fake_installer(stub_state, 'opencode', OPENCODE_INSTALLER_BODY)}",
             f"uv_install_url={_fake_installer(stub_state, 'uv', UV_INSTALLER_BODY)}",
+            f"claude_install_url={_fake_installer(stub_state, 'claude', CLAUDE_INSTALLER_BODY)}",
         ),
         extra_env={
             "PATH": (f"{_gh_shim(stub_state)}{os.pathsep}{STUBS_DIR}{os.pathsep}"
@@ -660,10 +668,24 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     dash = (root / "etc/systemd/system/hermes-dashboard.service").read_text(encoding="utf-8")
     assert "--host 0.0.0.0 --port 9119" in dash and "--no-open" in dash, f"dashboard unit: {dash}"
 
-    # Matt skills for the VM user (no --agent flags; OpenCode reads global ~/.agents/skills)
-    assert inv.count(f"npx -y skills@latest add mattpocock/skills --global --skill * --yes") == 1, (
-        f"VM skills install: {[l for l in inv if l.startswith('npx')]}"
+    # Claude Code (native installer) and Codex (npm, user prefix ~/.local) for the VM user
+    assert (home / ".local/bin/claude").is_file(), "Claude Code not installed"
+    assert (stub_state / "claude-installer").read_text().count(f"HOME={home}") == 1, (
+        "Claude Code installer not run exactly once as the VM user"
     )
+    assert inv.count("npm install -g @openai/codex") == 1, f"codex: {inv}"
+    assert (home / ".local/bin/codex").is_file(), "Codex not installed"
+    assert f"prefix={home}/.local" in (home / ".npmrc").read_text(encoding="utf-8")
+    # ...neither is signed in yet, so the run says how
+    assert "claude (then /login)" in result.stdout and "codex login --device-auth" in result.stdout, (
+        f"no sign-in reminder for the CLIs:\n{result.stdout}"
+    )
+
+    # Matt skills for the VM user, same targets as the Mac (OpenCode reads ~/.agents/skills)
+    assert inv.count(
+        "npx -y skills@latest add mattpocock/skills --global --skill * --agent codex --agent claude-code --yes"
+    ) == 1, f"VM skills install: {[l for l in inv if l.startswith('npx')]}"
+    assert (home / ".claude/skills/setup-matt-pocock-skills/SKILL.md").is_file(), "Claude Code skills missing"
 
     # workspace-mcp tool (for the mcp_servers entry)
     assert inv.count("uv tool install workspace-mcp") == 1, f"workspace-mcp: {inv}"
@@ -695,6 +717,9 @@ def test_vm_rerun_is_quiet(stub_state):
     assert len(clones_before) == 2, f"expected exactly two clones on the fresh run: {clones_before}"
     assert not any(l.startswith("gh auth login") for l in new), f"re-login on re-run: {new}"
     assert not any(l.startswith("uv tool install") for l in new), f"workspace-mcp reinstalled: {new}"
+    assert not any(l.startswith("npm install") for l in new), f"codex reinstalled: {new}"
+    assert not any(l.startswith("npx") and " add " in l for l in new), f"skills reinstalled: {new}"
+    assert (stub_state / "claude-installer").read_text().count("args=") == 1, "Claude Code reinstalled"
     assert not any(l.startswith("orb create") for l in new), f"machine recreated: {new}"
     assert not any(l.startswith("systemctl enable") for l in new), f"services re-enabled: {new}"
     assert not any(l.startswith("systemctl restart") for l in new), f"services restarted: {new}"
@@ -769,3 +794,18 @@ def test_vm_with_omlx_models_but_no_key(stub_state):
     import yaml
     cfg = yaml.safe_load((home / ".hermes/config.yaml").read_text(encoding="utf-8"))
     assert "key_env" not in cfg["providers"]["omlx"], f"no key configured, yet one was referenced: {cfg}"
+
+
+def test_vm_signed_in_clis_get_no_reminder(stub_state):
+    # Credentials already in place (signed in by hand after an earlier run): no reminder.
+    home = stub_state.parent / "vm-home"
+    for cred in (".claude/.credentials.json", ".codex/auth.json"):
+        (home / cred).parent.mkdir(parents=True, exist_ok=True)
+        (home / cred).write_text("{}", encoding="utf-8")
+
+    result = _run_vm(stub_state)
+    _require_ok(result)
+
+    assert "codex login" not in result.stdout and "/login" not in result.stdout, (
+        f"sign-in reminder although both CLIs are signed in:\n{result.stdout}"
+    )

@@ -13,7 +13,7 @@ An app already installed on the machine, by any means — Homebrew or manually. 
 _Avoid_: installed (ambiguous: brew-managed vs on-disk) — say present when the distinction matters
 
 **Agents VM**:
-The one isolated OrbStack Linux machine this repo can provision (`agents`, Ubuntu 24.04) — it runs Hermes Agent and OpenCode, the two agents that do work for you. It is opt-in behind a bootstrap question (default No; `PROVISION_AGENTS_VM` pre-answers it), and answering yes also installs/updates OrbStack itself — neither is part of the Mac baseline. Reachable by SSH from the Mac, NATed behind it (no IP of its own on the LAN).
+The one isolated OrbStack Linux machine this repo can provision (`agents`, Ubuntu 24.04) — it runs Hermes Agent and OpenCode, the two agents that do work for you. Claude Code and Codex are installed there too, for use over SSH. It is opt-in behind a bootstrap question (default No; `PROVISION_AGENTS_VM` pre-answers it), and answering yes also installs/updates OrbStack itself — neither is part of the Mac baseline. Reachable by SSH from the Mac, NATed behind it (no IP of its own on the LAN).
 _Avoid_: container (it is a machine with services); sandbox (sounds like throwaway)
 
 **Workspace**:

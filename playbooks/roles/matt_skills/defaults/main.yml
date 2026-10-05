@@ -2,8 +2,8 @@
 # Matt Pocock's agent skills, installed with the open `skills` CLI (needs node).
 # Shared by this Mac and the agents VM so both track the same set. Callers pass:
 #   skills_home         - home dir the skills install into (Mac: $HOME; VM: /home/<user>)
-#   matt_skills_agents  - which agent targets to install for (Mac: codex + claude-code;
-#                         VM: none — OpenCode reads global ~/.agents/skills on its own)
+#   matt_skills_agents  - which agent targets to install for (codex + claude-code on
+#                         both; OpenCode reads global ~/.agents/skills on its own)
 
 skills_cli_package: skills@latest
 matt_skills_source: mattpocock/skills

@@ -31,13 +31,18 @@
       ansible.builtin.include_role:
         name: opencode_server
 
-    # Same skills set as this Mac, installed for the VM user; OpenCode reads them from
-    # global ~/.agents/skills on its own, so no --agent targets here.
+    - name: Claude Code and Codex for the VM user (VM)
+      ansible.builtin.include_role:
+        name: coding_clis
+
+    # Same skills set and targets as this Mac: one shared ~/.agents/skills (OpenCode and
+    # Codex read it), symlinked into Claude Code's ~/.claude/skills.
     - name: Matt Pocock skills for the VM user (shared role)
       ansible.builtin.include_role:
         name: matt_skills
       vars:
         skills_home: "{{ agents_vm_home }}"
+        matt_skills_agents: [codex, claude-code]
 
     - name: Hermes Agent with dashboard, Telegram gateway and OpenCode bridge (VM)
       ansible.builtin.include_role:

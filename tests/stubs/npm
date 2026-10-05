@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Stub npm for offline playbook tests. Implements only `npm install -g <pkg>` as the
+# agents VM uses it (global prefix ~/.local via ~/.npmrc): plants the package's binary
+# in $HOME/.local/bin. Any other invocation exits non-zero on purpose.
+
+STUB_TOOL="npm"
+# shellcheck source=tests/stubs/_stub_state.sh
+source "$(dirname "$0")/_stub_state.sh"
+
+stub_log "$*"
+
+if [ "${1:-} ${2:-}" != "install -g" ] || [ -z "${3:-}" ]; then
+  echo "stub npm: unhandled invocation: $*" >&2
+  exit 1
+fi
+
+home="${HOME:?stub npm requires HOME}"
+bin="${3##*/}"   # @openai/codex -> codex
+mkdir -p "$home/.local/bin"
+printf '#!/bin/sh\n# stub npm binary for %s\n' "$3" >"$home/.local/bin/$bin"
+chmod +x "$home/.local/bin/$bin"
+exit 0

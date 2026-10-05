@@ -145,6 +145,8 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 - **`verify.sh` reads its VM knobs** (machine name, dashboard/OpenCode ports) from `playbooks/vars_agents_vm.yml` instead of hard-coding them.
 - **Code-review follow-ups:** `gmail_accounts` var (rollout order) with a post-run sign-in reminder when a Google client is configured; `unzip` and `build-essential` restored to the VM base packages; one shared `systemd_unit` role behind all three service units and a looped include for OrbStack's global settings.
 
+- **Claude Code and Codex in the VM** (role `coding_clis`): Claude Code via its native installer (`claude_install_url`), Codex via `npm install -g @openai/codex` with the VM user's npm prefix set to `~/.local` in `~/.npmrc` (no root, and Codex's own update command works). Both presence-gated in `~/.local/bin`; sign-in stays manual with a post-run reminder until `~/.claude/.credentials.json` / `~/.codex/auth.json` exist. The VM's Matt Pocock skills now target `codex` + `claude-code` like the Mac's.
+
 ### Accepted deviations (implementation differs from the spec wording above)
 
 - **OpenCode env file** lives at `~/.config/opencode/env` (0600, VM user), not `/etc/opencode/env`.

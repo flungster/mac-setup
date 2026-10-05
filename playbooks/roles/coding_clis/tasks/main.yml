@@ -1,0 +1,51 @@
+---
+# Claude Code and Codex in the VM, for the VM user (same pair as this Mac's casks).
+# Both land in ~/.local/bin, which Ubuntu's ~/.profile puts on PATH at login.
+# Presence-gated like OpenCode and Hermes: each keeps itself current afterwards, so a
+# re-run never reinstalls. Sign-in is interactive (a browser link), so the playbook
+# leaves it to you and reminds you below while either is still signed out.
+
+- name: Fetch the Claude Code installer script (VM)
+  ansible.builtin.get_url:
+    url: "{{ claude_install_url }}"
+    dest: "{{ agents_vm_root }}/tmp/claude-install.sh"
+
+# The native installer puts the binary in ~/.local/bin and auto-updates it.
+- name: Install Claude Code if not present (VM)
+  ansible.builtin.shell: bash {{ agents_vm_root }}/tmp/claude-install.sh
+  args:
+    creates: "{{ agents_vm_home }}/.local/bin/claude"
+  environment:
+    HOME: "{{ agents_vm_home }}"
+
+# npm's global prefix for the VM user is ~/.local (in ~/.npmrc, not a one-off flag),
+# so Codex installs without root and its own "update available" npm command works too.
+- name: Point the VM user's global npm prefix at ~/.local (VM)
+  ansible.builtin.lineinfile:
+    path: "{{ agents_vm_home }}/.npmrc"
+    regexp: "^prefix="
+    line: "prefix={{ agents_vm_home }}/.local"
+    create: yes
+    mode: "0644"
+
+- name: Install Codex if not present (VM)
+  ansible.builtin.shell: npm install -g {{ codex_npm_package | quote }}
+  args:
+    creates: "{{ agents_vm_home }}/.local/bin/codex"
+  environment:
+    HOME: "{{ agents_vm_home }}"
+
+- name: Check whether Claude Code and Codex are signed in (VM)
+  ansible.builtin.stat:
+    path: "{{ agents_vm_home }}/{{ item }}"
+  loop: [.claude/.credentials.json, .codex/auth.json]
+  register: coding_cli_auth
+
+- name: Remind which CLI still needs a one-time sign-in (VM)
+  ansible.builtin.debug:
+    msg: >-
+      One-time setup left for you — in the VM (orb -m {{ agents_vm_name }}), sign in:
+      {{ ((['claude (then /login)'] if not coding_cli_auth.results[0].stat.exists else [])
+          + (['codex login --device-auth'] if not coding_cli_auth.results[1].stat.exists else []))
+         | join(', ') }}.
+  when: not (coding_cli_auth.results | map(attribute='stat.exists') | min)

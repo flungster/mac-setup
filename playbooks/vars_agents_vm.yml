@@ -67,3 +67,5 @@ gmail_accounts: [flungster@gmail.com, felix.lung@gmail.com, fl10@cornell.edu]
 hermes_install_url: https://hermes-agent.nousresearch.com/install.sh
 opencode_install_url: https://opencode.ai/install
 uv_install_url: https://astral.sh/uv/install.sh
+claude_install_url: https://claude.ai/install.sh   # Claude Code's native installer
+codex_npm_package: "@openai/codex"

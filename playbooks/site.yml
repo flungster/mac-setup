@@ -48,7 +48,7 @@
     oh_my_zsh_installer: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) }}/oh-my-zsh-install.sh"
 
     # Matt Pocock's agent skills: installed and kept current by the shared matt_skills
-    # role (the agents VM installs the same set for OpenCode, see playbooks/agents-vm.yml).
+    # role (the agents VM installs the same set, see playbooks/agents-vm.yml).
     # One shared set at ~/.agents/skills for Codex/OpenCode, symlinked into Claude Code's
     # ~/.claude/skills; OpenCode is deliberately not an --agent target (it already reads
     # global ~/.agents/skills). Presence is that marker pair; a managed install also has
