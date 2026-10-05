@@ -4,7 +4,11 @@ This repo is 100% agent-coded (see README) — keep that attribution greppable i
 
     Generated with opencode — model(s): <exact id(s), comma-separated if more than one>
 
-List every model used in the session, including subagents; use the exact model id from your context. If you are not running in opencode, name that harness instead.
+OpenCode runs different models in its stages (here: Claude Opus plans, Qwen 3.8 — reported as `brain` in its context — builds). List every model that contributed to the change: one id per contributing stage or subagent, each exactly as its own context reports it. A feature planned by one model and built by another carries both:
+
+    Generated with opencode — model(s): claude-opus-5-5, brain
+
+If you are not running in opencode, name that harness instead.
 
 ## Agent skills
 
