@@ -62,3 +62,12 @@
   environment:
     HOME: "{{ agents_vm_home }}"
   when: github_token | default('') != ''
+
+# Without a token /workspace stays empty, which looks like a broken mount — say why.
+- name: Note that the repo clones were skipped (no github_token)
+  ansible.builtin.debug:
+    msg: >-
+      No github_token in the secrets file, so {{ agent_repos | join(', ') }} were not
+      cloned into {{ agents_vm_workspace_guest_path }} (it stays empty). Add a
+      fine-grained PAT as github_token (ansible-vault edit) and re-run.
+  when: github_token | default('') == ''

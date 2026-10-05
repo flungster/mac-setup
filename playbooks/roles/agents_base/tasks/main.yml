@@ -1,6 +1,6 @@
 ---
-# VM base: the packages both agents need (git for repos, nodejs/npm for the skills
-# CLI and OpenCode) plus uv. apt is idempotent by its own bookkeeping — the changed
+# VM base: the packages both agents need (git for repos, Node.js from NodeSource for
+# the skills CLI and OpenCode) plus uv. apt is idempotent by its own bookkeeping — the changed
 # detection reads "N newly installed" from apt's summary, so a steady-state re-run
 # reports changed=0. System-level work uses become (OrbStack's login user has
 # passwordless sudo); everything else runs as the VM user with HOME pinned.
@@ -10,10 +10,40 @@
     path: "{{ agents_vm_root }}/tmp"
     state: directory
 
+# Node.js comes from NodeSource, not Ubuntu: noble's nodejs is 18, and the skills
+# CLI needs >= 22.20. NodeSource's nodejs bundles npm/npx (and conflicts with
+# Ubuntu's npm package, so npm is not in the package list).
+- name: Ensure the apt keyring and sources dirs exist (VM)
+  ansible.builtin.file:
+    path: "{{ agents_vm_root }}/etc/apt/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [keyrings, sources.list.d]
+  become: true
+
+- name: Fetch the NodeSource signing key (VM)
+  ansible.builtin.get_url:
+    url: "{{ nodesource_key_url }}"
+    dest: "{{ agents_vm_root }}/etc/apt/keyrings/nodesource.asc"
+    mode: "0644"
+  become: true
+
+- name: Add the NodeSource apt repo, pinned to one Node.js major (VM)
+  ansible.builtin.copy:
+    dest: "{{ agents_vm_root }}/etc/apt/sources.list.d/nodesource.list"
+    content: "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_{{ nodejs_major }}.x nodistro main\n"
+    mode: "0644"
+  become: true
+
+# Purging Ubuntu's npm/libnode-dev first migrates VMs provisioned before NodeSource:
+# NodeSource's nodejs conflicts with npm and overwrites files libnode-dev owns.
 - name: Install base packages (idempotent via apt's own bookkeeping)
   ansible.builtin.shell: |
     set -eu
     export DEBIAN_FRONTEND=noninteractive
+    if dpkg-query -W -f='${Status}' npm 2>/dev/null | grep -q 'ok installed'; then
+      apt-get purge -y npm libnode-dev node-gyp
+    fi
     apt-get update -qq
     apt-get install -y --no-install-recommends {{ agents_vm_base_packages | join(' ') }}
   become: true

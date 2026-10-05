@@ -135,6 +135,9 @@
 # alias: that alias only resolves once OrbStack has added its Include to
 # ~/.ssh/config, which a fresh install may not have done. The login is
 # <user>@<machine> — OrbStack's default user is the macOS user, not the machine name.
+# remote_tmp is absolute because Ansible expands its default ~ as ~<ansible_user>,
+# which for "<user>@<machine>" is no real user: it left a literal "~<user>@<machine>"
+# directory in the VM user's home.
 - name: Add the agents VM to this run's inventory (OrbStack SSH server)
   ansible.builtin.add_host:
     hostname: "{{ agents_vm_name }}"
@@ -142,6 +145,7 @@
     ansible_port: "{{ orb_ssh_port }}"
     ansible_user: "{{ agents_vm_user }}@{{ agents_vm_name }}"
     ansible_ssh_private_key_file: "{{ orb_ssh_dir }}/id_ed25519"
+    ansible_remote_tmp: "{{ agents_vm_home }}/.ansible/tmp"
     ansible_ssh_common_args: >-
       -o IdentitiesOnly=yes
       -o UserKnownHostsFile={{ orb_ssh_dir }}/known_hosts

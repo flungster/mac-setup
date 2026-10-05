@@ -29,10 +29,14 @@ agents_vm_root: /
 
 # --- base packages (VM) ------------------------------------------------------------------
 # git/curl/jq for the agents, ca-certificates + python3-venv for TLS and uv tools,
-# nodejs/npm for the skills CLI (npx), unzip + build-essential as a working VM
-# default (agents that compile or unpack things are not stuck on apt). python3 comes
-# with the Ubuntu image. Final list recorded in docs/plans/agents-vm.md (deviations).
-agents_vm_base_packages: [git, curl, jq, ca-certificates, python3-venv, nodejs, npm, unzip, build-essential]
+# nodejs (from NodeSource, bundles npm/npx) for the skills CLI, unzip + build-essential
+# as a working VM default (agents that compile or unpack things are not stuck on apt).
+# python3 comes with the Ubuntu image. Final list recorded in docs/plans/agents-vm.md
+# (deviations).
+agents_vm_base_packages: [git, curl, jq, ca-certificates, python3-venv, nodejs, unzip, build-essential]
+# Node.js major from NodeSource (Ubuntu's own is 18; the skills CLI needs >= 22.20).
+nodejs_major: 24
+nodesource_key_url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
 
 # --- AI providers ---------------------------------------------------------------------------
 hermes_default_model: claude-sonnet-4-6            # Hermes' main model (Anthropic)

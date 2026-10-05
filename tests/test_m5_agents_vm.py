@@ -374,6 +374,7 @@ def test_vm_host_is_reached_through_orbstack_ssh_port_as_the_mac_user(stub_state
         "              'user': hostvars[agents_vm_name].ansible_user,\n"
         "              'key': hostvars[agents_vm_name].ansible_ssh_private_key_file,\n"
         "              'args': hostvars[agents_vm_name].ansible_ssh_common_args,\n"
+        "              'remote_tmp': hostvars[agents_vm_name].ansible_remote_tmp,\n"
         "              'vm_user': agents_vm_user, 'vm_home': agents_vm_home} | to_json }}\n",
         encoding="utf-8",
     )
@@ -393,6 +394,10 @@ def test_vm_host_is_reached_through_orbstack_ssh_port_as_the_mac_user(stub_state
     assert f"UserKnownHostsFile={orb_ssh}/known_hosts" in got["args"], got
     assert got["vm_user"] == "macuser", got
     assert got["vm_home"] == "/home/macuser", got
+    # Ansible expands remote_tmp's ~ as ~<ansible_user>, and no Linux user is called
+    # "macuser@agents" — so the default left a literal ~macuser@agents/.ansible/tmp
+    # directory in the VM user's home. Pin it to an absolute path instead.
+    assert got["remote_tmp"] == "/home/macuser/.ansible/tmp", got
 
 
 # ---- play 2 (VM side): run on localhost with tmp paths and stubs ----------------
@@ -582,8 +587,14 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     assert len([l for l in inv if l.startswith("apt-get install")]) == 1
     apt = [l for l in inv if l.startswith("apt-get install")][0]
     for pkg in ("git", "curl", "jq", "ca-certificates", "python3-venv",
-                "nodejs", "npm", "unzip", "build-essential"):
+                "nodejs", "unzip", "build-essential"):
         assert pkg in apt, f"{pkg} missing from the apt call: {apt}"
+    # Node.js comes from NodeSource (Ubuntu's 18 is too old for the skills CLI), and
+    # Ubuntu's npm package conflicts with it
+    assert " npm" not in apt, f"Ubuntu npm must not be installed: {apt}"
+    repo = (root / "etc/apt/sources.list.d/nodesource.list").read_text(encoding="utf-8")
+    assert "deb.nodesource.com/node_24.x" in repo, f"NodeSource repo: {repo}"
+    assert (root / "etc/apt/keyrings/nodesource.asc").is_file(), "NodeSource key missing"
 
     # GitHub access
     assert inv.count("gh auth login --with-token --hostname github.com") == 1, f"login: {inv}"
@@ -726,6 +737,11 @@ def test_vm_without_optional_secrets_skips_their_features(stub_state):
 
     assert not any(l.startswith("gh auth login") for l in inv), f"login without a token: {inv}"
     assert not any(l.startswith("git clone") for l in inv), f"clones without a token: {inv}"
+    # ...and says so: an empty /workspace with no word in the run output reads as a
+    # broken mount.
+    assert "github_token" in result.stdout and "/workspace" in result.stdout, (
+        f"no notice that repo clones were skipped: {result.stdout}"
+    )
 
     assert GMAIL_ACCOUNTS[0] not in result.stdout, (
         f"sign-in reminder shown without a Google client: {result.stdout}"
