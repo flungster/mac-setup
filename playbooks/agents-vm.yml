@@ -14,5 +14,8 @@
 # Matt Pocock skills, Hermes Agent (dashboard + Telegram gateway) and read-only
 # Gmail/Calendar via workspace-mcp.
 
-- import_playbook: playbooks/agents-vm-mac.yml
-- import_playbook: playbooks/agents-vm-linux.yml
+# Sibling-relative on purpose: Ansible resolves import_playbook paths against THIS
+# file's directory (not the caller's CWD), so `playbooks/...` would double up into
+# playbooks/playbooks/. Works from any CWD (repo root or inside playbooks/).
+- import_playbook: agents-vm-mac.yml
+- import_playbook: agents-vm-linux.yml

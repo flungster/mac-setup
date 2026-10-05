@@ -19,6 +19,7 @@ import os
 
 from conftest import REPO_ROOT, STUBS_DIR, invocations, run_playbook, seed_state, venv_bin
 
+PARENT_PLAYBOOK = REPO_ROOT / "playbooks" / "agents-vm.yml"
 MAC_PLAYBOOK = REPO_ROOT / "playbooks" / "agents-vm-mac.yml"
 LINUX_PLAYBOOK = REPO_ROOT / "playbooks" / "agents-vm-linux.yml"
 
@@ -451,6 +452,54 @@ def _full_secrets(stub_state):
         github_token="github_pat_stub",
         local_llm_api_key="omlx-key",
     )
+
+
+# ---- playbooks/agents-vm.yml (the parent, what bootstrap actually runs) ----------
+
+
+def test_parent_playbook_imports_resolve_and_both_halves_run(stub_state):
+    # Regression: import_playbook paths resolve against the IMPORTING playbook's
+    # directory, so they must be sibling-relative. The old `playbooks/...` form
+    # made Ansible look for playbooks/playbooks/*.yml — which the stubs never
+    # caught, because they run each half directly (and M2 records args only).
+    home = stub_state.parent / "vm-home"
+    root = stub_state.parent / "vm-root"
+    guest_ws = stub_state.parent / "vm-workspace"
+    host_ws = stub_state.parent / "agent_workspaces"
+
+    result = run_playbook(
+        PARENT_PLAYBOOK, stub_state, seed_skills=False,
+        extra_vars=(
+            f"agents_vm_secrets_file={_write_secrets(stub_state)}",
+            "agents_vm_name=localhost",   # play 2 targets the inventory host locally
+            f"agents_vm_home={home}",
+            f"agents_vm_root={root}",
+            f"agents_vm_workspace_host_path={host_ws}",
+            f"agents_vm_workspace_guest_path={guest_ws}",
+            "ansible_become=false",       # never escalate under test (all paths are tmp)
+            "ansible_connection=local",   # the VM host is mapped onto localhost under test
+            f"ansible_python_interpreter={venv_bin() / 'python'}",
+            # file:// stand-ins for the installer scripts (see _run_vm)
+            f"hermes_install_url={_fake_installer(stub_state, 'hermes', HERMES_INSTALLER_BODY)}",
+            f"opencode_install_url={_fake_installer(stub_state, 'opencode', OPENCODE_INSTALLER_BODY)}",
+            f"uv_install_url={_fake_installer(stub_state, 'uv', UV_INSTALLER_BODY)}",
+        ),
+        extra_env={
+            "PATH": (f"{_gh_shim(stub_state)}{os.pathsep}{STUBS_DIR}{os.pathsep}"
+                     f"{venv_bin()}{os.pathsep}{os.environ['PATH']}"),
+            "APPS_DIR": _empty_apps_dir(stub_state),   # host /Applications must not leak
+        },
+    )
+
+    assert result.returncode == 0, (
+        f"parent playbook failed:\n{result.stdout}\n{result.stderr}"
+    )
+    inv = invocations(stub_state)
+
+    # Both halves really ran in one invocation: the Mac half created the machine,
+    # the VM half installed its base packages.
+    assert any(l.startswith("orb create --isolated") for l in inv), f"Mac half did not run: {inv}"
+    assert any(l.startswith("apt-get install") for l in inv), f"VM half did not run: {inv}"
 
 
 def test_vm_fresh_full_run_provisions_everything(stub_state):
