@@ -1,6 +1,6 @@
 # Plan: OrbStack + agents VM behind one bootstrap question (plus code-review follow-ups)
 
-Status: planned, not implemented. Base: HEAD `7159806` (agents VM feature complete, 56 tests green).
+Status: **implemented** — one commit per step below, each keeping `make check` + `make test` green (see git history). Base when the work started: HEAD `7159806` (agents VM feature complete, 56 tests green); the suite now stands at 65.
 
 ## Goal
 
@@ -11,7 +11,7 @@ Each bootstrap run asks one question:
 - **Yes** → install or update OrbStack, create/reconcile the `agents` VM, provision everything inside it.
 - **No** → touch nothing related: no OrbStack install or upgrade, VM neither created nor changed (an existing one is not stopped or deleted).
 
-## Decisions (defaults — confirm or change before implementing)
+## Decisions (confirmed as written before implementation)
 
 1. **Ask on every run**, even if the VM already exists (unlike the old Hermes prompt, which auto-answered yes when Hermes was already installed). The question is "install/update", so it's a choice each time.
 2. **Yes but no secrets file → stop the bootstrap immediately**, before anything is installed, pointing at `playbooks/secrets/agents-vm-secrets.example.yml`.

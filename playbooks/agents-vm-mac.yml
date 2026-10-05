@@ -1,6 +1,7 @@
 ---
-# Agents VM — Mac side (runs on this Mac): OrbStack ceilings, the isolated machine,
-# the shared workspace folder. Entry point for both halves: playbooks/agents-vm.yml.
+# Agents VM — Mac side (runs on this Mac): install/update OrbStack, set its ceilings,
+# create the isolated machine and prepare the shared workspace folder. Entry point for
+# both halves: playbooks/agents-vm.yml (OrbStack itself is opt-in — not in site.yml).
 
 - name: Prepare OrbStack and create the agents VM (on this Mac)
   hosts: localhost

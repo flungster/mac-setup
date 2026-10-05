@@ -3,8 +3,9 @@
 # and OpenCode, with the Mac's ~/agent_workspaces shared in as /workspace. Design:
 # docs/plans/agents-vm.md; decision + trade-offs: ADR 0002 (docs/adr/).
 #
-# Opt-in — never runs by default. Via bootstrap: PROVISION_AGENTS_VM=1 (plus
-# AGENTS_VAULT_PASSWORD_FILE), or directly:
+# Opt-in — never runs by default. Via bootstrap: answer yes to the agents-VM question
+# (PROVISION_AGENTS_VM=1 pre-answers it for automation; the vault password comes from
+# AGENTS_VAULT_PASSWORD_FILE or is asked interactively), or directly:
 #   ansible-playbook -i playbooks/hosts --vault-password-file <file> playbooks/agents-vm.yml
 # Re-running is the update path; nothing here recreates what already exists.
 #
