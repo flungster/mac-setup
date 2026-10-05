@@ -1,3 +1,9 @@
 ---
-# The orb CLI (OrbStack is a cask in site.yml's inventory). Overridable for tests.
+# The orb CLI. Overridable for tests (a fresh-install test also needs a PATH with
+# no orb at all, and points APPS_DIR at an empty tmp dir).
 orb_bin: orb
+
+# Where the OrbStack.app bundle is looked for (presence signal, like site.yml's
+# cask checks). Same APPS_DIR convention as playbooks/site.yml so tests can point
+# both at one tmp dir; a manual install's app bundle counts as "present".
+orb_apps_dir: "{{ lookup('env', 'APPS_DIR') | default('/Applications', true) }}"

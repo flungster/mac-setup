@@ -3,19 +3,69 @@
 # `orb` (stubbed in tests). Idempotent: re-running reconciles the global ceilings
 # and the machine's mount, never recreating what already exists (ADR-0001 — a
 # machine that is present, however it got there, is kept and reconciled).
+#
+# OrbStack itself lands here too — only because the user opted in (it is not part of
+# the Mac baseline): absent → brew install; present and brew-managed but outdated →
+# scoped upgrade; installed by hand (no brew record) → left entirely alone. ADR-0001
+# applied to the hypervisor, same rules as every other app.
 
-- name: Find the orb CLI (OrbStack cask, in site.yml's inventory)
+- name: Check for OrbStack.app in the apps dir (the app-bundle presence signal)
+  ansible.builtin.stat: path="{{ orb_apps_dir }}/OrbStack.app"
+  register: orbstack_app
+
+- name: Find the orb CLI (a manual OrbStack install may leave it on PATH)
   ansible.builtin.shell: command -v {{ orb_bin }}
   register: orb_path
   failed_when: false
   changed_when: false
 
-- name: Fail with a hint if OrbStack is not installed yet
+- name: Record whether OrbStack is present at all (app bundle or CLI on PATH)
+  ansible.builtin.set_fact:
+    orbstack_present: "{{ (orbstack_app.stat.exists | default(false)) or (orb_path.rc == 0) }}"
+
+# Manual installs are invisible to brew — the management check only matters when
+# something is present, and rc 0 is what marks a cask as brew-managed.
+- name: Check whether Homebrew manages the OrbStack cask (manual installs are invisible to brew)
+  ansible.builtin.shell: brew list --cask orbstack
+  register: orbstack_brew_managed_check
+  failed_when: false
+  changed_when: false
+
+- name: Install OrbStack with Homebrew when not present (this run exists only because you opted in)
+  ansible.builtin.shell: brew install --cask orbstack
+  when: not (orbstack_present | bool)
+
+- name: Check whether the brew-managed OrbStack cask is outdated
+  ansible.builtin.shell: brew outdated --cask orbstack
+  register: orbstack_outdated_check
+  failed_when: false
+  changed_when: false
+  when: (orbstack_present | bool) and (orbstack_brew_managed_check.rc == 0)
+
+- name: Upgrade OrbStack when brew-managed and outdated (manual installs stay out — ADR-0001)
+  ansible.builtin.shell: brew upgrade --cask orbstack
+  when: >-
+    (orbstack_present | bool) and
+    ((orbstack_brew_managed_check.rc == 0)) and
+    (((orbstack_outdated_check.stdout | default('')) | trim) != '')
+
+# After any install/upgrade the CLI must actually be usable: a fresh cask install
+# only lands `orb` on PATH once OrbStack has been opened (or the shell reloaded),
+# and a manual app-bundle install may never have linked it at all.
+- name: Re-check the orb CLI after any install/upgrade step
+  ansible.builtin.shell: command -v {{ orb_bin }}
+  register: orb_path_final
+  failed_when: false
+  changed_when: false
+
+- name: Fail with a hint when no orb CLI is usable after the install/upgrade step
   ansible.builtin.fail:
     msg: >-
-      orb CLI not found — install OrbStack first. It is in site.yml's cask list, so a
-      plain ./bootstrap.sh (or make setup) installs it; then re-run this playbook.
-  when: orb_path.rc != 0
+      orb CLI not found (looked for '{{ orb_bin }}' on PATH, OrbStack.app under
+      {{ orb_apps_dir }}). If OrbStack is installed manually: open it once so its CLI
+      links itself, then re-run. If Homebrew should own it: brew install --cask
+      orbstack, then re-run this playbook.
+  when: orb_path_final.rc != 0
 
 - name: Check whether OrbStack is running (orb list fails while the app is stopped)
   ansible.builtin.shell: "{{ orb_bin }} list"

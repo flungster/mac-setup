@@ -80,6 +80,20 @@ case "$sub" in
       case "$a" in -*) continue ;; esac
       if [ "$kind" = "cask" ]; then
         stub_set "cask.$a" 1
+        # The orbstack cask's postinstall makes the `orb` CLI usable. Emulate that by
+        # planting a working orb (delegating to the real orb stub, resolved through any
+        # symlink farm) in installed-bin/ next to state.env: install-path tests add that
+        # dir to PATH so later playbook steps find the CLI, exactly like a fresh shell.
+        if [ "$a" = "orbstack" ]; then
+          # $0 may be a symlink (the M5 install tests farm the stubs into their own dir
+          # without orb): resolve one level to find where the real orb stub lives.
+          target="$(readlink "$0")"
+          [ -n "$target" ] || target="$0"
+          stub_dir="$(cd "$(dirname "$target")" && pwd -P)" || exit 1
+          mkdir -p "${STUB_STATE_DIR}/../installed-bin" || exit 1
+          printf '#!/bin/sh\nexec %s/orb "$@"\n' "${stub_dir}" >"${STUB_STATE_DIR}/../installed-bin/orb"
+          chmod +x "${STUB_STATE_DIR}/../installed-bin/orb" || exit 1
+        fi
       else
         if [ -z "$(stub_get "formula.$a")" ]; then stub_set "formula.$a" 1.0.0; fi
         stub_set "formula.$a.outdated" ""
@@ -94,6 +108,9 @@ case "$sub" in
       case "$a" in -*) continue ;; esac
       if [ -n "$(stub_get "formula.$a")" ] && [ -n "$(stub_get "formula.$a.outdated")" ]; then
         stub_set "formula.$a.outdated" ""
+      fi
+      if [ -n "$(stub_get "cask.$a")" ] && [ -n "$(stub_get "cask.$a.outdated")" ]; then
+        stub_set "cask.$a.outdated" ""
       fi
     done
     ;;

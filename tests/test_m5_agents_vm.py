@@ -38,15 +38,52 @@ def _write_secrets(stub_state, **overrides):
     return str(path)
 
 
-def _run(stub_state, secrets_path=None, workspace=None, extra_vars=()):
+def _run(stub_state, secrets_path=None, workspace=None, extra_vars=(), extra_env=None):
     if secrets_path is None:
         secrets_path = _write_secrets(stub_state)
     vars_ = [f"agents_vm_secrets_file={secrets_path}"]
     if workspace is not None:
         vars_.append(f"agents_vm_workspace_host_path={workspace}")
     return run_playbook(
-        MAC_PLAYBOOK, stub_state, extra_vars=tuple(vars_) + tuple(extra_vars), seed_skills=False
+        MAC_PLAYBOOK, stub_state, extra_vars=tuple(vars_) + tuple(extra_vars),
+        seed_skills=False, extra_env=extra_env,
     )
+
+
+def _mac_install_env(stub_state, installed_bin=True):
+    """A hermetic PATH for the OrbStack install-path tests.
+
+    A symlink farm with every stub except `orb` (so 'command -v orb' genuinely
+    fails until an install provides it), plus — by default — the installed-bin dir
+    where 'brew install --cask orbstack' plants a working CLI (the brew stub emulates
+    the cask's postinstall). APPS_DIR is an empty tmp dir so this host's
+    /Applications cannot leak into the role's presence checks. extra_env replaces
+    PATH wholesale, so everything a shell task needs must be in it: the farm (which
+    carries brew and friends), the venv bin, bare system dirs.
+    """
+    farm = stub_state.parent / "mac-bin"
+    farm.mkdir(exist_ok=True)
+    for f in STUBS_DIR.iterdir():
+        if not f.is_file() or f.name == "orb":
+            continue
+        link = farm / f.name
+        if not link.exists():
+            link.symlink_to(f)
+    apps = stub_state.parent / "apps-empty"
+    apps.mkdir(exist_ok=True)
+    parts = [str(farm)]
+    if installed_bin:
+        parts.append(str(stub_state.parent / "installed-bin"))
+    return {
+        "PATH": os.pathsep.join(parts + [str(venv_bin()), "/usr/bin", "/bin"]),
+        "APPS_DIR": str(apps),
+    }
+
+
+def _empty_apps_dir(stub_state):
+    apps = stub_state.parent / "apps-empty"
+    apps.mkdir(exist_ok=True)
+    return str(apps)
 
 
 def _require_ok(result):
@@ -165,10 +202,114 @@ def test_optional_secrets_may_be_empty(stub_state):
 
 
 def test_orb_not_installed_fails_with_hint(stub_state):
-    result = _run(stub_state, extra_vars=("orb_bin=definitely-not-installed",))
+    result = _run(
+        stub_state, extra_vars=("orb_bin=definitely-not-installed",),
+        extra_env={"APPS_DIR": _empty_apps_dir(stub_state)},  # host /Applications must not leak in
+    )
 
     assert result.returncode != 0, f"run succeeded without the orb CLI:\n{result.stdout}"
     assert "OrbStack" in result.stdout, f"no install hint: {result.stdout}"
+
+
+# ---- OrbStack itself: installed/updated by this role on opt-in (ADR-0001 rules) ----
+#
+# The install path needs a PATH with no `orb` at all (a symlink farm of every other
+# stub) plus an empty APPS_DIR; 'brew install --cask orbstack' plants a working CLI
+# in installed-bin/ (the brew stub emulates the cask's postinstall), which _mac_install_env
+# puts on PATH so later steps find it.
+
+def test_fresh_mac_installs_orbstack_then_creates_vm(stub_state):
+    workspace = stub_state.parent / "agent_workspaces"
+
+    _require_ok(_run(stub_state, workspace=str(workspace), extra_env=_mac_install_env(stub_state)))
+    inv = invocations(stub_state)
+
+    assert inv.count("brew install --cask orbstack") == 1, f"OrbStack not installed exactly once: {inv}"
+    assert inv.index("brew install --cask orbstack") < inv.index("orb list"), (
+        f"machine work happened before the install: {inv}"
+    )
+    assert not [l for l in inv if "brew upgrade" in l and "orbstack" in l], f"install path upgraded: {inv}"
+    assert any(l.startswith("orb create --isolated") for l in inv), f"VM not created after install: {inv}"
+
+
+def test_brew_managed_outdated_orbstack_is_upgraded_once(stub_state):
+    # Already brew-managed and outdated (the routine re-run on an existing machine):
+    # one scoped upgrade, no install — and a second run must be quiet.
+    seed_state(stub_state, casks=["orbstack"], extra={"cask.orbstack.outdated": "1"})
+    workspace = stub_state.parent / "agent_workspaces"
+
+    _require_ok(_run(stub_state, workspace=str(workspace),
+                     extra_env={"APPS_DIR": _empty_apps_dir(stub_state)}))
+    inv = invocations(stub_state)
+
+    assert not [l for l in inv if "brew install" in l and "orbstack" in l], f"present cask reinstalled: {inv}"
+    assert inv.count("brew upgrade --cask orbstack") == 1, f"outdated cask not upgraded exactly once: {inv}"
+    assert inv.index("brew upgrade --cask orbstack") < inv.index("orb list"), (
+        f"machine work happened before the upgrade: {inv}"
+    )
+
+    baseline = len(inv)
+    _require_ok(_run(stub_state, workspace=str(workspace),
+                     extra_env={"APPS_DIR": _empty_apps_dir(stub_state)}))
+    new = invocations(stub_state)[baseline:]
+
+    # The re-run still reads (brew list/outdated) — but never installs or upgrades.
+    assert not [l for l in new if "orbstack" in l and ("brew install" in l or "brew upgrade" in l)], (
+        f"up-to-date re-run touched the cask: {new}"
+    )
+
+
+def test_brew_managed_current_orbstack_is_left_alone(stub_state):
+    # brew-managed and current: the role may check (brew list/outdated are reads) but
+    # must not install or upgrade.
+    seed_state(stub_state, casks=["orbstack"])
+
+    _require_ok(_run(stub_state, extra_env={"APPS_DIR": _empty_apps_dir(stub_state)}))
+    inv = invocations(stub_state)
+
+    assert not [l for l in inv if "orbstack" in l and ("brew install" in l or "brew upgrade" in l)], (
+        f"current cask was touched: {inv}"
+    )
+
+
+def test_manual_orbstack_is_left_alone(stub_state):
+    # Present (CLI on PATH via the stub) but no brew record = a manual install:
+    # ADR-0001 leaves it entirely alone — no install, no upgrade.
+    _require_ok(_run(stub_state))
+    inv = invocations(stub_state)
+
+    assert not [l for l in inv if "orbstack" in l and ("brew install" in l or "brew upgrade" in l)], (
+        f"manual OrbStack was touched: {inv}"
+    )
+
+
+def test_orb_cli_still_missing_after_install_fails_with_hint(stub_state):
+    # The install ran but the CLI still is not on PATH (a manual app-bundle whose
+    # postinstall never linked it, or a broken cask install): fail with the hint,
+    # before any machine work. installed-bin is NOT on PATH here, so the planted CLI
+    # stays invisible — exactly like a real machine where `orb` was never linked.
+    result = _run(stub_state, extra_env=_mac_install_env(stub_state, installed_bin=False))
+
+    assert result.returncode != 0, f"run succeeded although the CLI is still missing:\n{result.stdout}"
+    assert "orbstack" in result.stdout, f"no hint naming the cask: {result.stdout}"
+    inv = invocations(stub_state)
+
+    assert inv.count("brew install --cask orbstack") == 1, f"install not attempted: {inv}"
+    assert not [l for l in inv if l.startswith("orb ")], (
+        f"machine work happened without a usable CLI: {inv}"
+    )
+
+
+def test_missing_secrets_file_fails_before_any_brew_call(stub_state):
+    # The secrets pre-flight in agents-vm-mac.yml runs before the role: a missing
+    # file must stop the run with zero brew calls (nothing gets installed).
+    result = _run(stub_state, secrets_path="playbooks/secrets/definitely-missing.yml",
+                  extra_env=_mac_install_env(stub_state))
+
+    assert result.returncode != 0, f"run succeeded without a secrets file:\n{result.stdout}"
+    inv = invocations(stub_state)
+
+    assert not [l for l in inv if "brew" in l], f"brew was called before the secrets check: {inv}"
 
 
 # ---- play 2 (VM side): run on localhost with tmp paths and stubs ----------------
