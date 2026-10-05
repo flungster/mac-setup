@@ -18,24 +18,24 @@
   environment:
     HOME: "{{ agents_vm_home }}"
 
-# Keys live in this env file (0600); opencode.json references them as {env:...} so no
-# secret is written into the config itself. The server unit loads this file.
+# The keys are written straight into opencode.json (0600), so every OpenCode process
+# finds them: the server unit, and `opencode` run by hand over SSH, which never sees a
+# systemd EnvironmentFile. An earlier layout kept them in a separate env file instead.
 - name: Ensure OpenCode's config dir exists (VM)
   ansible.builtin.file:
     path: "{{ agents_vm_home }}/.config/opencode"
     state: directory
 
-- name: Write the OpenCode environment (keys for {env:...} references)
-  ansible.builtin.template:
-    src: opencode.env.j2
-    dest: "{{ agents_vm_home }}/.config/opencode/env"
-    mode: "0600"
-
-- name: Write the OpenCode config (providers, default model, loopback server)
+- name: Write the OpenCode config (providers with keys, default model, loopback server)
   ansible.builtin.template:
     src: opencode.json.j2
     dest: "{{ agents_vm_home }}/.config/opencode/opencode.json"
-    mode: "0644"
+    mode: "0600"
+
+- name: Remove the old OpenCode env file (keys now live in opencode.json)
+  ansible.builtin.file:
+    path: "{{ agents_vm_home }}/.config/opencode/env"
+    state: absent
 
 # --- system service (root; shared unit lifecycle in the systemd_unit role) --------------
 - name: Install and manage the opencode-server unit (loopback only — never LAN)

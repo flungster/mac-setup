@@ -150,6 +150,7 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 ### Accepted deviations (implementation differs from the spec wording above)
 
 - **OpenCode env file** lives at `~/.config/opencode/env` (0600, VM user), not `/etc/opencode/env`.
+- **No OpenCode env file any more:** the keys are written into `~/.config/opencode/opencode.json` (0600) instead of `{env:...}` references, because `opencode` run by hand over SSH never loaded the unit's `EnvironmentFile` and called Anthropic without a key.
 - **OpenCode server host/port** are set in `opencode.json`'s `server` block, not as unit flags (`--hostname/--port`).
 - **Dashboard auth:** the username is a playbook var (`hermes_dashboard_username`, default `admin`); the password goes into the vault in plain (not pre-hashed), and the basic-auth signing secret is generated once by the playbook and kept stable — it does not live in the vault.
 - **workspace-mcp** is spawned by Hermes per session over stdio (the `mcp_servers` registration), so it has no systemd service of its own — the architecture diagram above shows a `google-workspace-mcp.service` that does not exist.

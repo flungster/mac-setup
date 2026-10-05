@@ -611,24 +611,23 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     for repo_dir in ("mac-setup", "health-tracker"):
         assert (ws / repo_dir / ".git").is_dir(), f"{repo_dir} not cloned"
 
-    # OpenCode: env + config + unit
-    env_file = (home / ".config/opencode/env").read_text(encoding="utf-8")
-    assert "ANTHROPIC_API_KEY=sk-ant-stub" in env_file, f"env file: {env_file}"
-    assert "OMLX_API_KEY=omlx-key" in env_file, f"env file: {env_file}"
-    assert (home / ".config/opencode/env").stat().st_mode & 0o777 == 0o600, "env file not 0600"
+    # OpenCode: config (keys inline, so a hand-run `opencode` over SSH has them) + unit
+    assert not (home / ".config/opencode/env").exists(), "stale env file left behind"
+    oc_path = home / ".config/opencode/opencode.json"
+    assert oc_path.stat().st_mode & 0o777 == 0o600, "opencode.json holds keys but is not 0600"
     oc = json.loads((home / ".config/opencode/opencode.json").read_text(encoding="utf-8"))
     assert oc["server"] == {"hostname": "127.0.0.1", "port": 4096}, f"server: {oc['server']}"
     assert oc["model"] == "anthropic/claude-sonnet-4-5", f"default model: {oc['model']}"
-    assert oc["provider"]["anthropic"]["options"]["apiKey"] == "{env:ANTHROPIC_API_KEY}"
+    assert oc["provider"]["anthropic"]["options"]["apiKey"] == "sk-ant-stub"
     omlx = oc["provider"]["omlx"]
     assert set(omlx["models"]) == {"qwen3-coder-480b", "gpt-oss-120b"}, f"omlx models: {omlx}"
     assert omlx["options"]["baseURL"] == "http://llm.internal:8000/v1"
-    assert omlx["options"]["apiKey"] == "{env:OMLX_API_KEY}"
+    assert omlx["options"]["apiKey"] == "omlx-key"
 
     # services
     assert inv.count("systemctl enable --now opencode-server") == 1, f"enable: {inv}"
     unit = (root / "etc/systemd/system/opencode-server.service").read_text(encoding="utf-8")
-    assert ".opencode/bin/opencode serve" in unit and "EnvironmentFile=" + str(home / ".config/opencode/env") in unit
+    assert ".opencode/bin/opencode serve" in unit and "EnvironmentFile=" not in unit, f"unit: {unit}"
 
     # Hermes: .env, config.yaml, bridge skill, both units
     hermes_env = (home / ".hermes/.env").read_text(encoding="utf-8")
@@ -757,8 +756,6 @@ def test_vm_without_optional_secrets_skips_their_features(stub_state):
 
     oc = json.loads((home / ".config/opencode/opencode.json").read_text(encoding="utf-8"))
     assert "omlx" not in oc["provider"], f"omlx provider without model IDs: {oc['provider']}"
-    env_file = (home / ".config/opencode/env").read_text(encoding="utf-8")
-    assert "OMLX_API_KEY" not in env_file, f"env file: {env_file}"
 
     assert not any(l.startswith("gh auth login") for l in inv), f"login without a token: {inv}"
     assert not any(l.startswith("git clone") for l in inv), f"clones without a token: {inv}"
@@ -787,9 +784,7 @@ def test_vm_with_omlx_models_but_no_key(stub_state):
     oc = json.loads((home / ".config/opencode/opencode.json").read_text(encoding="utf-8"))
     omlx = oc["provider"]["omlx"]
     assert set(omlx["models"]) == {"qwen3-coder-480b"}, f"omlx models: {omlx}"
-    assert "apiKey" not in omlx["options"], f"no key configured, yet one was referenced: {omlx}"
-    env_file = (home / ".config/opencode/env").read_text(encoding="utf-8")
-    assert "OMLX_API_KEY" not in env_file, f"env file: {env_file}"
+    assert "apiKey" not in omlx["options"], f"no key configured, yet one was set: {omlx}"
 
     import yaml
     cfg = yaml.safe_load((home / ".hermes/config.yaml").read_text(encoding="utf-8"))

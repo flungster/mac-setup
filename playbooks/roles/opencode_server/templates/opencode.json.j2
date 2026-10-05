@@ -3,14 +3,14 @@
   "model": "{{ opencode_default_model }}",
   "provider": {
     "anthropic": {
-      "options": {"apiKey": "{env:ANTHROPIC_API_KEY}"}
+      "options": {"apiKey": {{ anthropic_api_key | to_json }}}
     }{% if local_llm_models | length > 0 %},
     "omlx": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "oMLX (local)",
       "options": {
         "baseURL": "{{ local_llm_base_url }}"{% if local_llm_api_key | default('') %},
-        "apiKey": "{env:OMLX_API_KEY}"{% endif %}
+        "apiKey": {{ local_llm_api_key | to_json }}{% endif %}
       },
       "models": {
         {% for m in local_llm_models %}"{{ m }}": {"name": "{{ m }}"}{% if not loop.last %},{% endif %}

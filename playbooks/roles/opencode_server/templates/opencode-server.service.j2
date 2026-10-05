@@ -5,7 +5,6 @@ After=network-online.target
 [Service]
 User={{ agents_vm_user }}
 WorkingDirectory={{ agents_vm_workspace_guest_path }}
-EnvironmentFile={{ agents_vm_home }}/.config/opencode/env
 ExecStart={{ agents_vm_home }}/.opencode/bin/opencode serve
 Restart=on-failure
 RestartSec=5
