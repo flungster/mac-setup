@@ -73,17 +73,23 @@ Answering "yes" without the secrets file stops bootstrap before anything is inst
    echo 'your-strong-password-here' > ~/.config/mac-setup/agents-vm-vault-pass
    chmod 600 ~/.config/mac-setup/agents-vm-vault-pass
    ```
-3. **Copy the template and fill it in, encrypted.** `ansible-vault edit` opens your editor with the file's content and writes it back as ciphertext:
+3. **Copy the template, fill it in, then encrypt.** First attempt only — once a file is encrypted you use `edit` (step 6):
    ```sh
    cp playbooks/secrets/agents-vm-secrets.example.yml \
       playbooks/secrets/agents-vm-secrets.yml
+   $EDITOR playbooks/secrets/agents-vm-secrets.yml     # fill it in, plain text
+   ansible-vault encrypt --vault-password-file ~/.config/mac-setup/agents-vm-vault-pass \
+      playbooks/secrets/agents-vm-secrets.yml
+   ```
+   Fill `anthropic_api_key` and `hermes_dashboard_password`, plus any optional keys you already have (the template's comments explain each). Note: `ansible-vault edit` on a still-plaintext file would just save it as plaintext — that is why the first pass uses `encrypt`.
+4. **Check it is really encrypted:** `cat playbooks/secrets/agents-vm-secrets.yml` must start with `$ANSIBLE_VAULT;1.1;AES256`. To read it again: `ansible-vault view --vault-password-file ~/.config/mac-setup/agents-vm-vault-pass playbooks/secrets/agents-vm-secrets.yml`.
+5. **Run with it.** Hand bootstrap the password file and answer y: `AGENTS_VAULT_PASSWORD_FILE=~/.config/mac-setup/agents-vm-vault-pass ./bootstrap.sh` — or run the playbook directly: `ansible-playbook -i playbooks/hosts --vault-password-file ~/.config/mac-setup/agents-vm-vault-pass playbooks/agents-vm.yml`. Omit the password file and Ansible asks for it interactively instead of failing.
+6. **When a key changes later:** the file is already encrypted, so it's `edit`, not step 3's `encrypt`:
+   ```sh
    ansible-vault edit --vault-password-file ~/.config/mac-setup/agents-vm-vault-pass \
       playbooks/secrets/agents-vm-secrets.yml
    ```
-   The editor shows the template (comments and all) in plain text — fill `anthropic_api_key` and `hermes_dashboard_password`, plus any optional keys you already have, save and quit.
-4. **Check it is really encrypted:** `cat playbooks/secrets/agents-vm-secrets.yml` must start with `$ANSIBLE_VAULT;1.1;AES256`. To read it again: `ansible-vault view --vault-password-file ~/.config/mac-setup/agents-vm-vault-pass playbooks/secrets/agents-vm-secrets.yml`.
-5. **Run with it.** Hand bootstrap the password file and answer y: `AGENTS_VAULT_PASSWORD_FILE=~/.config/mac-setup/agents-vm-vault-pass ./bootstrap.sh` — or run the playbook directly: `ansible-playbook -i playbooks/hosts --vault-password-file ~/.config/mac-setup/agents-vm-vault-pass playbooks/agents-vm.yml`. Omit the password file and Ansible asks for it interactively instead of failing.
-6. **When a key changes later:** `ansible-vault edit` with the same command as step 3, then re-run with "yes" (see Rotating secrets below).
+   Then re-run with "yes" (see Rotating secrets below).
 
 **Rotating secrets.** Edit the vault file (`ansible-vault edit playbooks/secrets/agents-vm-secrets.yml`) and re-run with "yes" (or the playbook directly). What each rotation needs:
 - **GitHub PAT:** delete `~/.config/gh` inside the VM first — otherwise the cached login is still "valid" and the new token is never applied.
