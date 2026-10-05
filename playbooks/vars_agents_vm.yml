@@ -11,7 +11,7 @@
 agents_vm_secrets_file: "{{ playbook_dir }}/secrets/agents-vm-secrets.yml"
 
 # --- machine and hypervisor (this Mac) -------------------------------------------
-agents_vm_name: agents            # OrbStack machine name; also the SSH user (ssh <name>@orb)
+agents_vm_name: agents            # OrbStack machine name
 agents_vm_distro: ubuntu:noble    # Ubuntu 24.04 ARM64
 agents_vm_memory_mib: 12288       # OrbStack-wide ceiling (32 GB Mac; macOS keeps the rest)
 agents_vm_cpu: 6                  # OrbStack-wide CPU ceiling, in cores (orb CLI unit)
@@ -21,7 +21,7 @@ agents_vm_workspace_guest_path: /workspace
 agents_vm_mount_spec: "{{ agents_vm_workspace_host_path }}{{ ':' ~ agents_vm_workspace_guest_path }}"
 
 # --- VM internals -------------------------------------------------------------------
-agents_vm_user: "{{ agents_vm_name }}"   # OrbStack's SSH user is the machine name
+agents_vm_user: "{{ lookup('env', 'USER') }}"   # OrbStack's default VM user is the macOS user
 agents_vm_home: "/home/{{ agents_vm_user }}"
 # Prefix for "system" paths (units, deb cache, installer downloads): / on the real VM;
 # a tmp dir in tests so nothing under test ever touches this Mac's /etc or /usr.

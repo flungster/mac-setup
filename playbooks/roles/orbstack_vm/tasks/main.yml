@@ -130,13 +130,22 @@
     (agents_vm_present | bool) and
     ((agents_vm_mount_reconciled.changed | default(false)) | bool)
 
-# The VM plays (further down in this playbook file, as they land) target the
-# machine by name; OrbStack reaches it over its SSH alias `orb` with user = name.
-- name: Add the agents VM to this run's inventory (OrbStack SSH alias)
+# The VM plays target the machine by name. They reach it through OrbStack's SSH
+# server directly (127.0.0.1:32222, its own key and known_hosts), NOT the `orb`
+# alias: that alias only resolves once OrbStack has added its Include to
+# ~/.ssh/config, which a fresh install may not have done. The login is
+# <user>@<machine> — OrbStack's default user is the macOS user, not the machine name.
+- name: Add the agents VM to this run's inventory (OrbStack SSH server)
   ansible.builtin.add_host:
     hostname: "{{ agents_vm_name }}"
-    ansible_user: "{{ agents_vm_name }}"
-    ansible_host: orb
+    ansible_host: "{{ orb_ssh_host }}"
+    ansible_port: "{{ orb_ssh_port }}"
+    ansible_user: "{{ agents_vm_user }}@{{ agents_vm_name }}"
+    ansible_ssh_private_key_file: "{{ orb_ssh_dir }}/id_ed25519"
+    ansible_ssh_common_args: >-
+      -o IdentitiesOnly=yes
+      -o UserKnownHostsFile={{ orb_ssh_dir }}/known_hosts
+      -o StrictHostKeyChecking=accept-new
 
 - name: Make the newly added host visible to later plays in this run
   meta: refresh_inventory

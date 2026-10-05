@@ -71,7 +71,7 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 - Extract Matt skills tasks into `playbooks/roles/matt_skills` (params: home, agent targets, marker paths, lock path); Mac keeps `codex` + `claude-code`.
 
 ### New `playbooks/agents-vm.yml` + roles
-- `orbstack_vm` (runs on Mac): assert `orb`; `orb config set memory_mib/cpu`; create `~/agent_workspaces`; create machine only if absent; reconcile `machine.agents.mounts`; add inventory host via OrbStack SSH (`agents@orb`).
+- `orbstack_vm` (runs on Mac): assert `orb`; `orb config set memory_mib/cpu`; create `~/agent_workspaces`; create machine only if absent; reconcile `machine.agents.mounts`; add inventory host via OrbStack's SSH server (`<macOS user>@agents` on 127.0.0.1:32222 — not the `orb` alias, which needs OrbStack's Include in `~/.ssh/config`).
 - `agents_base` (VM): apt packages (`git curl unzip build-essential python3 python3-venv jq`), Node.js LTS, `uv`, unprivileged service user, linger for user services if needed.
 - `github_access` (VM): install `gh`; `gh auth login --with-token`; `gh auth setup-git`; insteadOf rewrite; git identity; clone `agent_repos` into `/workspace` if missing.
 - `opencode_server` (VM): official installer; `opencode.json` (Anthropic + oMLX provider); `/etc/opencode/env` (0600); `opencode-server.service` (`--hostname 127.0.0.1 --port 4096`, `WorkingDirectory=/workspace`, `Restart=on-failure`, enabled).

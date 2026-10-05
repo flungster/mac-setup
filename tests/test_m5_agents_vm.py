@@ -348,6 +348,53 @@ def test_missing_secrets_file_fails_before_any_brew_call(stub_state):
     assert not [l for l in inv if "brew" in l], f"brew was called before the secrets check: {inv}"
 
 
+def test_vm_host_is_reached_through_orbstack_ssh_port_as_the_mac_user(stub_state):
+    # Regression: the VM host used OrbStack's `orb` SSH alias, which only resolves when
+    # OrbStack has added its Include to ~/.ssh/config — on a fresh install it had not,
+    # so the Linux half died with "Could not resolve hostname orb". It also assumed the
+    # VM user was the machine name, but OrbStack logs in as the macOS user. The host
+    # must use OrbStack's SSH server directly (127.0.0.1:32222 + its own key and
+    # known_hosts), with the explicit <user>@<machine> login.
+    import json
+
+    out = stub_state.parent / "vm-hostvars.json"
+    wrapper = stub_state.parent / "dump-vm-hostvars.yml"
+    wrapper.write_text(
+        f"- import_playbook: {MAC_PLAYBOOK}\n"
+        "- hosts: localhost\n"
+        "  connection: local\n"
+        "  gather_facts: false\n"
+        "  vars_files: [" + str(REPO_ROOT / "playbooks" / "vars_agents_vm.yml") + "]\n"
+        "  tasks:\n"
+        "    - ansible.builtin.copy:\n"
+        f"        dest: {out}\n"
+        "        content: >-\n"
+        "          {{ {'host': hostvars[agents_vm_name].ansible_host,\n"
+        "              'port': hostvars[agents_vm_name].ansible_port,\n"
+        "              'user': hostvars[agents_vm_name].ansible_user,\n"
+        "              'key': hostvars[agents_vm_name].ansible_ssh_private_key_file,\n"
+        "              'args': hostvars[agents_vm_name].ansible_ssh_common_args,\n"
+        "              'vm_user': agents_vm_user, 'vm_home': agents_vm_home} | to_json }}\n",
+        encoding="utf-8",
+    )
+    env = _mac_env_default(stub_state)
+    env["USER"] = "macuser"
+    _require_ok(run_playbook(
+        wrapper, stub_state, seed_skills=False, extra_env=env,
+        extra_vars=(f"agents_vm_secrets_file={_write_secrets(stub_state)}",),
+    ))
+
+    got = json.loads(out.read_text(encoding="utf-8"))
+    orb_ssh = stub_state.parent / "home" / ".orbstack" / "ssh"
+    assert got["host"] == "127.0.0.1", got
+    assert int(got["port"]) == 32222, got
+    assert got["user"] == "macuser@agents", got
+    assert got["key"] == f"{orb_ssh}/id_ed25519", got
+    assert f"UserKnownHostsFile={orb_ssh}/known_hosts" in got["args"], got
+    assert got["vm_user"] == "macuser", got
+    assert got["vm_home"] == "/home/macuser", got
+
+
 # ---- play 2 (VM side): run on localhost with tmp paths and stubs ----------------
 #
 # Play 2 targets the VM host; under test we name it "localhost" so it maps onto the

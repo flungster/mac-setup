@@ -62,6 +62,8 @@ Default No — and it is asked even when a VM already exists, because "yes" on a
 PROVISION_AGENTS_VM=1 AGENTS_VAULT_PASSWORD_FILE=~/.config/mac-setup/agents-vm-vault-pass ./bootstrap.sh
 ```
 
+**First OrbStack start shows its own window.** On a Mac where OrbStack was just installed, the playbook's `orb start` launches the app for the first time. OrbStack then shows its welcome screen ("Docker / Linux / Kubernetes") and may ask for your password to install its helper. Do **not** pick Linux there: that creates a separate default machine (`ubuntu`) that this setup doesn't use, since the playbook creates `agents` itself. Close the welcome screen instead. If you already picked Linux, delete the extra machine (`orb delete ubuntu`, or in the OrbStack window). Later runs don't show the welcome screen again.
+
 Answering "yes" without the secrets file stops bootstrap before anything is installed, pointing at the template below. The vault password comes from `AGENTS_VAULT_PASSWORD_FILE` when set; otherwise Ansible asks for it interactively (`--ask-vault-pass`).
 
 **Secrets, with ansible-vault (step by step).** The keys live in `playbooks/secrets/agents-vm-secrets.yml`, encrypted with Ansible Vault; only the keys you fill in are real, and both this file's name (in `.gitignore`) and its password stay out of git. Only `anthropic_api_key` and `hermes_dashboard_password` are required; the rest (Telegram, Google OAuth client, GitHub PAT, oMLX key) enable their features when present.
@@ -98,7 +100,7 @@ Answering "yes" without the secrets file stops bootstrap before anything is inst
 
 **Steps only you can do:** create the Telegram bot with @BotFather and get your user ID from @userinfobot; set up a Google Cloud project (Gmail + Calendar APIs, External consent screen published to Production without review, one Desktop-app OAuth client); create a fine-grained GitHub PAT for `flungster/mac-setup` and `flungster/health-tracker`. Full walkthrough: see the plan's "Human-only steps" section. After provisioning, sign in once per Gmail account through a browser link (an SSH tunnel to the VM if your browser can't reach it) — in rollout order, `flungster@gmail.com` (noisy inbox: good first validation), then `felix.lung@gmail.com`, and `fl10@cornell.edu` best-effort (Cornell admin may block it). The playbook ends a run with the Google client configured by reminding you of this list (`gmail_accounts` in `playbooks/vars_agents_vm.yml`).
 
-**Reaching the agents:** `ssh agents@orb` from macOS; dashboard at `http://<mac-ip>:9119` (username/password) from any LAN device; Telegram anywhere. The VM is NATed behind the Mac, so it has no IP of its own on your network.
+**Reaching the agents:** `orb -m agents` from macOS (a shell in the VM; `ssh agents@orb` also works once OrbStack has added its SSH config to `~/.ssh/config`); dashboard at `http://<mac-ip>:9119` (username/password) from any LAN device; Telegram anywhere. The VM is NATed behind the Mac, so it has no IP of its own on your network.
 
 ## Development
 

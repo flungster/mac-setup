@@ -1,7 +1,8 @@
 ---
 # Agents VM — Linux side (runs inside the machine, reached through OrbStack's SSH
-# alias: host `orb`, user = machine name; playbooks/agents-vm-mac.yml adds that
-# host to the run when both halves are imported by playbooks/agents-vm.yml).
+# server on 127.0.0.1:32222 as <macOS user>@<machine>; the orbstack_vm role in
+# playbooks/agents-vm-mac.yml adds that host to the run when both halves are
+# imported by playbooks/agents-vm.yml).
 # Entry point for both halves: playbooks/agents-vm.yml.
 
 - name: Provision the agents VM (Linux side)

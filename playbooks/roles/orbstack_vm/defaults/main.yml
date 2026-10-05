@@ -7,3 +7,9 @@ orb_bin: orb
 # cask checks). Same APPS_DIR convention as playbooks/site.yml so tests can point
 # both at one tmp dir; a manual install's app bundle counts as "present".
 orb_apps_dir: "{{ lookup('env', 'APPS_DIR') | default('/Applications', true) }}"
+
+# OrbStack's SSH server on this Mac, used to reach the VM (see the add_host task).
+# The key and known_hosts are the ones OrbStack generates under ~/.orbstack/ssh.
+orb_ssh_host: 127.0.0.1
+orb_ssh_port: 32222
+orb_ssh_dir: "{{ lookup('env', 'HOME') }}/.orbstack/ssh"

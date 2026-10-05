@@ -48,10 +48,14 @@ done
 # fail verify. Name/ports come from playbooks/vars_agents_vm.yml (above).
 if [ -n "$AGENTS_VM_NAME" ] && command -v orb >/dev/null 2>&1 \
    && (orb list 2>/dev/null | grep -qw "$AGENTS_VM_NAME"); then
-  if ssh -o BatchMode=yes -o ConnectTimeout=5 "$AGENTS_VM_NAME@orb" true >/dev/null 2>&1; then
-    ok "agents VM reachable via ssh $AGENTS_VM_NAME@orb"
+  # OrbStack's SSH server directly (not the `orb` alias, which needs OrbStack's
+  # Include in ~/.ssh/config) — same connection the playbook uses.
+  if ssh -o BatchMode=yes -o ConnectTimeout=5 -p 32222 -o IdentitiesOnly=yes \
+       -i "$HOME/.orbstack/ssh/id_ed25519" -o UserKnownHostsFile="$HOME/.orbstack/ssh/known_hosts" \
+       -o StrictHostKeyChecking=accept-new "$AGENTS_VM_NAME@127.0.0.1" true >/dev/null 2>&1; then
+    ok "agents VM reachable via OrbStack SSH (127.0.0.1:32222)"
   else
-    missing "agents VM (ssh $AGENTS_VM_NAME@orb)" \
+    missing "agents VM (OrbStack SSH, 127.0.0.1:32222)" \
       "./bootstrap.sh and answer yes to the agents VM question (or PROVISION_AGENTS_VM=1), or start the machine: orb start $AGENTS_VM_NAME"
   fi
 
