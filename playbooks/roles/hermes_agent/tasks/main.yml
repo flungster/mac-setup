@@ -53,6 +53,9 @@
     create: yes
     mode: "0600"
   loop: "{{ hermes_env | dict2items }}"
+  # Print only the key names; the values are secrets.
+  loop_control:
+    label: "{{ item.key }}"
 
 # --- config.yaml (fully managed) ----------------------------------------------------------
 - name: Write the Hermes config (providers, approvals, Google MCP registration)
