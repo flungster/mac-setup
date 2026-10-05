@@ -19,6 +19,13 @@ if [ -f "$VARS_FILE" ]; then
   OPENCODE_PORT="$(vm_var opencode_port)"
   DASHBOARD_PORT="$(vm_var hermes_dashboard_port)"
 fi
+# The vars file exists but a knob did not parse (reformatted or templated line): report
+# it — silently skipping every VM check below would mask a renamed/moved knob. A missing
+# file is the partial-checkout case and stays a quiet skip (nothing to check against).
+if [ -f "$VARS_FILE" ] && { [ -z "$AGENTS_VM_NAME" ] || [ -z "$OPENCODE_PORT" ] || [ -z "$DASHBOARD_PORT" ]; }; then
+  missing "agents VM knobs in playbooks/vars_agents_vm.yml (name or ports did not parse)" \
+    "keep agents_vm_name / opencode_port / hermes_dashboard_port as plain scalars"
+fi
 
 for cmd in claude codex node; do
   if command -v "$cmd" >/dev/null 2>&1; then

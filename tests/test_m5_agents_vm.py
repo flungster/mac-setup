@@ -23,6 +23,22 @@ MAC_PLAYBOOK = REPO_ROOT / "playbooks" / "agents-vm-mac.yml"
 LINUX_PLAYBOOK = REPO_ROOT / "playbooks" / "agents-vm-linux.yml"
 
 
+def _vars_agents_vm():
+    """playbooks/vars_agents_vm.yml as a dict — the source of truth for these knobs.
+
+    Tests must not carry their own copy (same rule as playbook_inventory in
+    conftest): a var renamed or dropped there would desync these assertions. The file
+    parses as plain YAML — its {{ ... }} values are just strings to the loader. Loading
+    also asserts every key below exists (the plan asks M5 to pin gmail_accounts)."""
+    import yaml
+
+    with open(REPO_ROOT / "playbooks" / "vars_agents_vm.yml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+GMAIL_ACCOUNTS = tuple(_vars_agents_vm()["gmail_accounts"])
+
+
 def _write_secrets(stub_state, **overrides):
     """A plain (unencrypted) secrets file; the playbook does not care which."""
     import yaml
@@ -90,10 +106,16 @@ def _require_ok(result):
     assert result.returncode == 0, f"playbook failed:\n{result.stdout}"
 
 
+# Every Mac-side test pins APPS_DIR at an empty tmp dir: the role's OrbStack.app
+# presence check must never see this host's /Applications (hermeticity, like M2/M3).
+def _mac_env_default(stub_state):
+    return {"APPS_DIR": _empty_apps_dir(stub_state)}
+
+
 def test_fresh_run_creates_the_vm_and_sets_ceilings(stub_state):
     workspace = stub_state.parent / "agent_workspaces"
 
-    _require_ok(_run(stub_state, workspace=str(workspace)))
+    _require_ok(_run(stub_state, workspace=str(workspace), extra_env=_mac_env_default(stub_state)))
     inv = invocations(stub_state)
 
     assert workspace.is_dir(), "workspace folder not created on this Mac"
@@ -112,10 +134,10 @@ def test_fresh_run_creates_the_vm_and_sets_ceilings(stub_state):
 def test_rerun_is_a_noop(stub_state):
     workspace = stub_state.parent / "agent_workspaces"
 
-    _require_ok(_run(stub_state, workspace=str(workspace)))
+    _require_ok(_run(stub_state, workspace=str(workspace), extra_env=_mac_env_default(stub_state)))
     baseline = len(invocations(stub_state))
 
-    _require_ok(_run(stub_state, workspace=str(workspace)))
+    _require_ok(_run(stub_state, workspace=str(workspace), extra_env=_mac_env_default(stub_state)))
     new = invocations(stub_state)[baseline:]
 
     assert not any(l.startswith("orb create") for l in new), f"machine recreated: {new}"
@@ -127,7 +149,7 @@ def test_stopped_orbstack_is_started_first(stub_state):
     seed_state(stub_state, extra={"orb.stopped": 1})
     workspace = stub_state.parent / "agent_workspaces"
 
-    _require_ok(_run(stub_state, workspace=str(workspace)))
+    _require_ok(_run(stub_state, workspace=str(workspace), extra_env=_mac_env_default(stub_state)))
     inv = invocations(stub_state)
 
     assert inv.count("orb start") == 1, f"OrbStack not started exactly once: {inv}"
@@ -143,7 +165,7 @@ def test_stale_mount_is_reconciled_with_restart(stub_state):
     seed_state(stub_state, extra={"machine.agents": "1", "machine.agents.mounts": "/old/path:/workspace"})
     workspace = stub_state.parent / "agent_workspaces"
 
-    _require_ok(_run(stub_state, workspace=str(workspace)))
+    _require_ok(_run(stub_state, workspace=str(workspace), extra_env=_mac_env_default(stub_state)))
     inv = invocations(stub_state)
 
     assert not any(l.startswith("orb create") for l in inv), f"existing machine recreated: {inv}"
@@ -161,7 +183,7 @@ def test_correct_mount_is_left_alone(stub_state):
         stub_state, extra={"machine.agents": "1", f"machine.agents.mounts": f"{workspace}:/workspace"}
     )
 
-    _require_ok(_run(stub_state, workspace=str(workspace)))
+    _require_ok(_run(stub_state, workspace=str(workspace), extra_env=_mac_env_default(stub_state)))
     inv = invocations(stub_state)
 
     assert not any(l.startswith("orb create") for l in inv), f"existing machine recreated: {inv}"
@@ -196,7 +218,7 @@ def test_optional_secrets_may_be_empty(stub_state):
     # secret merely enables its feature when present.
     secrets = _write_secrets(stub_state)
 
-    result = _run(stub_state, secrets_path=secrets)
+    result = _run(stub_state, secrets_path=secrets, extra_env=_mac_env_default(stub_state))
 
     assert result.returncode == 0, f"optional secrets must not block provisioning:\n{result.stdout}"
 
@@ -275,7 +297,7 @@ def test_brew_managed_current_orbstack_is_left_alone(stub_state):
 def test_manual_orbstack_is_left_alone(stub_state):
     # Present (CLI on PATH via the stub) but no brew record = a manual install:
     # ADR-0001 leaves it entirely alone — no install, no upgrade.
-    _require_ok(_run(stub_state))
+    _require_ok(_run(stub_state, extra_env=_mac_env_default(stub_state)))
     inv = invocations(stub_state)
 
     assert not [l for l in inv if "orbstack" in l and ("brew install" in l or "brew upgrade" in l)], (
@@ -529,7 +551,7 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
 
     # Post-run reminder: with a Google client configured, the inboxes that still need
     # their one-time browser sign-in are named (gmail_accounts, rollout order).
-    for acct in ("flungster@gmail.com", "felix.lung@gmail.com", "fl10@cornell.edu"):
+    for acct in GMAIL_ACCOUNTS:   # loaded from vars_agents_vm.yml — no test-owned copy
         assert acct in result.stdout, f"post-run reminder missing {acct}:\n{result.stdout}"
 
 
@@ -596,7 +618,7 @@ def test_vm_without_optional_secrets_skips_their_features(stub_state):
     assert not any(l.startswith("gh auth login") for l in inv), f"login without a token: {inv}"
     assert not any(l.startswith("git clone") for l in inv), f"clones without a token: {inv}"
 
-    assert "flungster@gmail.com" not in result.stdout, (
+    assert GMAIL_ACCOUNTS[0] not in result.stdout, (
         f"sign-in reminder shown without a Google client: {result.stdout}"
     )
 

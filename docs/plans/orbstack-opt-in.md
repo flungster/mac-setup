@@ -1,6 +1,6 @@
 # Plan: OrbStack + agents VM behind one bootstrap question (plus code-review follow-ups)
 
-Status: **implemented** — one commit per step below, each keeping `make check` + `make test` green (see git history). Base when the work started: HEAD `7159806` (agents VM feature complete, 56 tests green); the suite now stands at 65.
+Status: **implemented** — one commit per step below, each keeping `make check` + `make test` green (see git history). Base when the work started: HEAD `7159806` (agents VM feature complete, 56 tests green); the suite now stands at 66.
 
 ## Goal
 

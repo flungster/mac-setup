@@ -15,8 +15,8 @@ the host machine can influence the run.
 
 The agents VM is opt-in behind a bootstrap question (PROVISION_AGENTS_VM can pre-
 answer it for automation): its plumbing gets tests below, using a recording
-ansible-playbook shim on PATH (the playbooks themselves are tested in M3/M5). Two
-pseudo-terminal tests drive the real prompt end to end.
+ansible-playbook shim on PATH (the playbooks themselves are tested in M3/M5). Three
+pseudo-terminal tests drive the real prompt end to end: y, n and bare Enter.
 """
 import os
 import select
@@ -472,5 +472,23 @@ def test_agents_vm_prompt_bare_enter_is_no(bootstrap):
     calls = _playbook_calls(bootstrap)
 
     assert len(calls) == 1, f"bare Enter must decline (one playbook only): {calls}"
+    assert "skipping" in transcript, f"the decline was not logged: {transcript}"
+
+
+def test_agents_vm_prompt_n_is_no(bootstrap):
+    # An explicit "n" at the prompt declines too (the test above pins that [y/N]'s
+    # default is No when nothing at all is typed).
+    bootstrap.install_brew()
+    _seed_managed(bootstrap)
+
+    env = _record_playbook_args(bootstrap)
+    env["PROVISION_AGENTS_VM"] = ""   # the prompt itself must answer, not a pre-answer
+
+    rc, transcript = _run_with_tty(bootstrap, extra_env=env, tty_input=b"n\n")
+    assert rc == 0, f"bootstrap failed under a TTY:\n{transcript}"
+    assert "Install/update OrbStack and the agents VM" in transcript, f"prompt not shown: {transcript}"
+    calls = _playbook_calls(bootstrap)
+
+    assert len(calls) == 1, f"'n' must decline (one playbook only): {calls}"
     assert "skipping" in transcript, f"the decline was not logged: {transcript}"
 
