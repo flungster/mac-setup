@@ -204,6 +204,19 @@ def test_missing_secrets_file_fails_with_hint(stub_state):
     )
 
 
+def test_unfilled_template_parses_and_names_the_missing_secret(stub_state):
+    """The committed .example is what users copy: it must load as YAML (an unquoted
+    `***` placeholder once made include_vars die with a YAML alias error) and, left
+    unfilled, fail on the required-secrets check rather than anywhere earlier."""
+    template = REPO_ROOT / "playbooks" / "secrets" / "agents-vm-secrets.example.yml"
+
+    result = _run(stub_state, secrets_path=str(template))
+
+    assert result.returncode != 0, f"unfilled template provisioned:\n{result.stdout}"
+    assert "YAML parsing failed" not in result.stdout, f"template is not valid YAML:\n{result.stdout}"
+    assert "hermes_dashboard_password" in result.stdout, f"missing key not named: {result.stdout}"
+
+
 def test_missing_required_secret_fails_with_key_named(stub_state):
     secrets = _write_secrets(stub_state, anthropic_api_key="")
 
