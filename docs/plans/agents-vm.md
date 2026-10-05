@@ -142,3 +142,13 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 - **OrbStack is not in the Mac baseline any more.** The `orbstack` cask was removed from `playbooks/site.yml`; the agents-VM playbook installs or updates OrbStack itself, only when you opt in (ADR 0001's rules still apply: manual installs are left alone).
 - **Opt-in is a bootstrap question** — "Install/update OrbStack and the agents VM (Hermes Agent + OpenCode)? [y/N]" — asked on every run, default No, and a no-terminal bootstrap answers No without hanging. `PROVISION_AGENTS_VM` still pre-answers it for automation; on "yes", the vault password is read from `AGENTS_VAULT_PASSWORD_FILE` or asked interactively (`--ask-vault-pass`).
 - **Answering "yes" without a secrets file stops the bootstrap before anything is installed**, pointing at `playbooks/secrets/agents-vm-secrets.example.yml`.
+- **`verify.sh` reads its VM knobs** (machine name, dashboard/OpenCode ports) from `playbooks/vars_agents_vm.yml` instead of hard-coding them.
+- **Code-review follow-ups:** `gmail_accounts` var (rollout order) with a post-run sign-in reminder when a Google client is configured; `unzip` and `build-essential` restored to the VM base packages; one shared `systemd_unit` role behind all three service units and a looped include for OrbStack's global settings.
+
+### Accepted deviations (implementation differs from the spec wording above)
+
+- **OpenCode env file** lives at `~/.config/opencode/env` (0600, VM user), not `/etc/opencode/env`.
+- **OpenCode server host/port** are set in `opencode.json`'s `server` block, not as unit flags (`--hostname/--port`).
+- **Dashboard auth:** the username is a playbook var (`hermes_dashboard_username`, default `admin`); the password goes into the vault in plain (not pre-hashed), and the basic-auth signing secret is generated once by the playbook and kept stable — it does not live in the vault.
+- **workspace-mcp** is spawned by Hermes per session over stdio (the `mcp_servers` registration), so it has no systemd service of its own — the architecture diagram above shows a `google-workspace-mcp.service` that does not exist.
+- **VM base packages** final list: `git curl jq ca-certificates python3-venv nodejs npm unzip build-essential` (`unzip`/`build-essential` restored per the review; `python3` ships with the Ubuntu image).

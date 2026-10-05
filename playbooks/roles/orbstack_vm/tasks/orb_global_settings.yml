@@ -1,0 +1,17 @@
+---
+# Reconcile ONE OrbStack global setting (invoked per pair from main.yml's loop): read
+# it — an unset key fails the get, which is exactly "not set yet" — and write only when
+# different. memory_mib/cpu are OrbStack-WIDE ceilings (all machines share them; setting
+# a matching value is a no-op), and machines.expose_ports_to_lan keeps the dashboard
+# reachable from other devices via this Mac's IP — pin it so a manual UI change is healed
+# on the next run.
+
+- name: Read the current OrbStack setting ({{ item.key }})
+  ansible.builtin.shell: "{{ orb_bin }} config get {{ item.key }}"
+  register: orb_setting_current
+  failed_when: false
+  changed_when: false
+
+- name: Set the OrbStack setting when different ({{ item.key }} = {{ item.value | string }})
+  ansible.builtin.shell: "{{ orb_bin }} config set {{ item.key }} {{ item.value }}"
+  when: ((orb_setting_current.stdout | default('')) | trim) != (item.value | string)

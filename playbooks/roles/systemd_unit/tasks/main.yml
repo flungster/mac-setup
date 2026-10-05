@@ -1,0 +1,46 @@
+---
+# Shared systemd unit lifecycle for the VM's services (opencode-server, hermes-dashboard,
+# hermes-gateway): write the unit file under {{ agents_vm_root }}/etc/systemd,
+# daemon-reload when it changed, enable --now on boot when not already enabled, and
+# restart only when the unit file actually changed AND it was running. The caller renders
+# its OWN role-relative template and passes the result as unit_content — template lookups
+# resolve against the including role, which is why this one writes with copy. The unit's
+# own gating (e.g. the gateway only when a bot token is set) stays at the call site:
+# put `when:` on the include_role and it propagates to every step here.
+
+- name: Ensure the systemd unit dir exists (/etc/systemd on a real VM — already there)
+  ansible.builtin.file:
+    path: "{{ agents_vm_root }}/etc/systemd/system"
+    state: directory
+  become: true
+
+- name: Write the {{ unit_name }} unit file (VM, system scope)
+  ansible.builtin.copy:
+    content: "{{ unit_content }}"
+    dest: "{{ agents_vm_root }}/etc/systemd/system/{{ unit_name }}.service"
+    mode: "0644"
+  become: true
+  register: systemd_unit_file
+
+- name: Reload systemd when the {{ unit_name }} unit changed (VM)
+  ansible.builtin.shell: systemctl daemon-reload
+  become: true
+  when: systemd_unit_file.changed | bool
+
+- name: Check whether {{ unit_name }} is enabled (VM)
+  ansible.builtin.shell: systemctl is-enabled {{ unit_name }}
+  register: systemd_unit_enabled_check
+  failed_when: false
+  changed_when: false
+
+- name: Enable and start {{ unit_name }} on boot when not already (VM)
+  ansible.builtin.shell: systemctl enable --now {{ unit_name }}
+  become: true
+  when: (systemd_unit_enabled_check.stdout | default('') | trim) != 'enabled'
+
+- name: Restart {{ unit_name }} to pick up its new unit (VM)
+  ansible.builtin.shell: systemctl restart {{ unit_name }}
+  become: true
+  when: >-
+    (systemd_unit_file.changed | bool) and
+    ((systemd_unit_enabled_check.stdout | default('') | trim) == 'enabled')

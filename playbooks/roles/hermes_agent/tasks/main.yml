@@ -73,73 +73,21 @@
     dest: "{{ hermes_home }}/skills/opencode-bridge/SKILL.md"
     mode: "0644"
 
-# --- dashboard service (root) ---------------------------------------------------------------------
-- name: Write the hermes-dashboard unit file (VM, system scope)
-  ansible.builtin.template:
-    src: hermes-dashboard.service.j2
-    dest: "{{ agents_vm_root }}/etc/systemd/system/hermes-dashboard.service"
-    mode: "0644"
-  become: true
-  register: hermes_dashboard_unit
-
-- name: Reload systemd when the hermes-dashboard unit changed (VM)
-  ansible.builtin.shell: systemctl daemon-reload
-  become: true
-  when: hermes_dashboard_unit.changed | bool
-
-- name: Check whether hermes-dashboard is enabled (VM)
-  ansible.builtin.shell: systemctl is-enabled hermes-dashboard
-  register: hermes_dashboard_enabled_check
-  failed_when: false
-  changed_when: false
-
-- name: Enable and start hermes-dashboard on boot when not already (VM)
-  ansible.builtin.shell: systemctl enable --now hermes-dashboard
-  become: true
-  when: (hermes_dashboard_enabled_check.stdout | default('') | trim) != 'enabled'
-
-- name: Restart hermes-dashboard to pick up its new unit (VM)
-  ansible.builtin.shell: systemctl restart hermes-dashboard
-  become: true
-  when: >-
-    (hermes_dashboard_unit.changed | bool) and
-    ((hermes_dashboard_enabled_check.stdout | default('') | trim) == 'enabled')
+# --- dashboard service (root; shared unit lifecycle in the systemd_unit role) --------------------
+- name: Install and manage the hermes-dashboard unit (LAN-reachable, behind basic auth)
+  ansible.builtin.include_role:
+    name: systemd_unit
+  vars:
+    unit_name: hermes-dashboard
+    # Rendered from THIS role's templates dir (lookups resolve against the including
+    # role); systemd_unit writes it with copy.
+    unit_content: "{{ lookup('template', 'hermes-dashboard.service.j2') }}"
 
 # --- Telegram gateway service (root; only when a bot token is configured) ---------------------------
-- name: Write the hermes-gateway unit file (VM, system scope)
-  ansible.builtin.template:
-    src: hermes-gateway.service.j2
-    dest: "{{ agents_vm_root }}/etc/systemd/system/hermes-gateway.service"
-    mode: "0644"
-  become: true
-  register: hermes_gateway_unit
-  when: (telegram_bot_token | default('')) != ''
-
-- name: Reload systemd when the hermes-gateway unit changed (VM)
-  ansible.builtin.shell: systemctl daemon-reload
-  become: true
-  when: >-
-    (telegram_bot_token | default('')) != '' and
-    ((hermes_gateway_unit.changed | default(false)) | bool)
-
-- name: Check whether hermes-gateway is enabled (VM)
-  ansible.builtin.shell: systemctl is-enabled hermes-gateway
-  register: hermes_gateway_enabled_check
-  failed_when: false
-  changed_when: false
-  when: (telegram_bot_token | default('')) != ''
-
-- name: Enable and start hermes-gateway on boot when not already (VM)
-  ansible.builtin.shell: systemctl enable --now hermes-gateway
-  become: true
-  when: >-
-    (telegram_bot_token | default('')) != '' and
-    ((hermes_gateway_enabled_check.stdout | default('') | trim) != 'enabled')
-
-- name: Restart hermes-gateway to pick up its new unit (VM)
-  ansible.builtin.shell: systemctl restart hermes-gateway
-  become: true
-  when: >-
-    (telegram_bot_token | default('')) != '' and
-    ((hermes_gateway_unit.changed | default(false)) | bool) and
-    ((hermes_gateway_enabled_check.stdout | default('') | trim) == 'enabled')
+- name: Install and manage the hermes-gateway unit (outbound polling, owner-only)
+  ansible.builtin.include_role:
+    name: systemd_unit
+  vars:
+    unit_name: hermes-gateway
+    unit_content: "{{ lookup('template', 'hermes-gateway.service.j2') }}"
+  when: (telegram_bot_token | default('')) != ''   # propagates to every step of the role

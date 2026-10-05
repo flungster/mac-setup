@@ -37,39 +37,12 @@
     dest: "{{ agents_vm_home }}/.config/opencode/opencode.json"
     mode: "0644"
 
-# --- system service (root) ----------------------------------------------------------
-- name: Ensure the systemd unit dir exists (/etc/systemd on a real VM — already there)
-  ansible.builtin.file:
-    path: "{{ agents_vm_root }}/etc/systemd/system"
-    state: directory
-
-- name: Write the opencode-server unit file (VM, system scope)
-  ansible.builtin.template:
-    src: opencode-server.service.j2
-    dest: "{{ agents_vm_root }}/etc/systemd/system/opencode-server.service"
-    mode: "0644"
-  become: true
-  register: opencode_unit
-
-- name: Reload systemd when the opencode-server unit changed (VM)
-  ansible.builtin.shell: systemctl daemon-reload
-  become: true
-  when: opencode_unit.changed | bool
-
-- name: Check whether opencode-server is enabled (VM)
-  ansible.builtin.shell: systemctl is-enabled opencode-server
-  register: opencode_enabled_check
-  failed_when: false
-  changed_when: false
-
-- name: Enable and start opencode-server on boot when not already (VM)
-  ansible.builtin.shell: systemctl enable --now opencode-server
-  become: true
-  when: (opencode_enabled_check.stdout | default('') | trim) != 'enabled'
-
-- name: Restart opencode-server to pick up its new unit (VM)
-  ansible.builtin.shell: systemctl restart opencode-server
-  become: true
-  when: >-
-    (opencode_unit.changed | bool) and
-    ((opencode_enabled_check.stdout | default('') | trim) == 'enabled')
+# --- system service (root; shared unit lifecycle in the systemd_unit role) --------------
+- name: Install and manage the opencode-server unit (loopback only — never LAN)
+  ansible.builtin.include_role:
+    name: systemd_unit
+  vars:
+    unit_name: opencode-server
+    # Rendered from THIS role's templates dir (lookups resolve against the including
+    # role); systemd_unit writes it with copy.
+    unit_content: "{{ lookup('template', 'opencode-server.service.j2') }}"

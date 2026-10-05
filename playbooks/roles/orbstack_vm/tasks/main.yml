@@ -90,39 +90,14 @@
     path: "{{ agents_vm_workspace_host_path }}"
     state: directory
 
-# OrbStack's memory_mib/cpu are GLOBAL ceilings (all machines share them); setting
-# them is a no-op when the value already matches. The LAN-exposure default keeps the
-# dashboard reachable from other devices via this Mac's IP — pin it so a manual UI
-# change is healed on the next run.
-- name: Read the current OrbStack memory ceiling (MiB)
-  ansible.builtin.shell: "{{ orb_bin }} config get memory_mib"
-  register: agents_vm_memory_current
-  failed_when: false
-  changed_when: false
-
-- name: Set the OrbStack memory ceiling when different ({{ agents_vm_memory_mib }} MiB)
-  ansible.builtin.shell: "{{ orb_bin }} config set memory_mib {{ agents_vm_memory_mib | string }}"
-  when: ((agents_vm_memory_current.stdout | default('')) | trim) != (agents_vm_memory_mib | string)
-
-- name: Read the current OrbStack CPU ceiling
-  ansible.builtin.shell: "{{ orb_bin }} config get cpu"
-  register: agents_vm_cpu_current
-  failed_when: false
-  changed_when: false
-
-- name: Set the OrbStack CPU ceiling when different ({{ agents_vm_cpu }} cores)
-  ansible.builtin.shell: "{{ orb_bin }} config set cpu {{ agents_vm_cpu | string }}"
-  when: (agents_vm_cpu_current.stdout | default('') | trim) != agents_vm_cpu | string
-
-- name: Read whether machine ports are exposed to the LAN
-  ansible.builtin.shell: "{{ orb_bin }} config get machines.expose_ports_to_lan"
-  register: agents_vm_lan_current
-  failed_when: false
-  changed_when: false
-
-- name: Expose machine ports to the LAN when not already (dashboard access)
-  ansible.builtin.shell: "{{ orb_bin }} config set machines.expose_ports_to_lan true"
-  when: (agents_vm_lan_current.stdout | default('') | trim) != 'true'
+# OrbStack's memory_mib/cpu are GLOBAL ceilings (all machines share them) and the LAN
+# exposure keeps the dashboard reachable via this Mac's IP — see orb_global_settings.yml.
+- name: Reconcile OrbStack's global settings (memory/CPU ceilings, LAN exposure)
+  ansible.builtin.include_tasks: orb_global_settings.yml
+  loop:
+    - { key: memory_mib, value: "{{ agents_vm_memory_mib | string }}" }
+    - { key: cpu, value: "{{ agents_vm_cpu | string }}" }
+    - { key: machines.expose_ports_to_lan, value: "true" }
 
 - name: Create the isolated agents VM (mounts only the workspace folder)
   ansible.builtin.shell: >-

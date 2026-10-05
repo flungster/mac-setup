@@ -45,3 +45,14 @@
     - name: Google Workspace MCP (read-only Gmail + Calendar) for Hermes
       ansible.builtin.include_role:
         name: google_workspace_mcp
+
+    # One-time human step the playbook cannot do: authorise each inbox in a browser
+    # (the first Gmail/Calendar action offers the link; tunnel it if your browser can't
+    # reach the VM). Only when a Google client is configured — otherwise no accounts.
+    - name: Remind which Gmail/Calendar accounts still need a one-time sign-in (VM)
+      ansible.builtin.debug:
+        msg: >-
+          One-time setup left for you — sign in each Google account once via the link
+          Hermes offers (an SSH tunnel to your browser if it can't reach this VM):
+          {{ gmail_accounts | join(', ') }} (rollout order; Cornell's may be admin-blocked).
+      when: ((google_oauth_client_id | default('')) != '') and (((gmail_accounts | default([])) | length) > 0)

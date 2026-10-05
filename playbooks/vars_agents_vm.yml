@@ -28,7 +28,11 @@ agents_vm_home: "/home/{{ agents_vm_user }}"
 agents_vm_root: /
 
 # --- base packages (VM) ------------------------------------------------------------------
-agents_vm_base_packages: [git, curl, jq, ca-certificates, python3-venv, nodejs, npm]
+# git/curl/jq for the agents, ca-certificates + python3-venv for TLS and uv tools,
+# nodejs/npm for the skills CLI (npx), unzip + build-essential as a working VM
+# default (agents that compile or unpack things are not stuck on apt). python3 comes
+# with the Ubuntu image. Final list recorded in docs/plans/agents-vm.md (deviations).
+agents_vm_base_packages: [git, curl, jq, ca-certificates, python3-venv, nodejs, npm, unzip, build-essential]
 
 # --- AI providers ---------------------------------------------------------------------------
 hermes_default_model: claude-sonnet-4-6            # Hermes' main model (Anthropic)
@@ -50,6 +54,10 @@ gh_deb_url: "https://github.com/cli/cli/releases/download/v{{ gh_version }}/gh_{
 
 # --- Google Workspace MCP -----------------------------------------------------------------------
 google_workspace_tools: [gmail, calendar]  # read-only for now; sending = drop --read-only + re-consent
+# The inboxes workspace-mcp covers, in rollout order (validate the setup on the noisy
+# one first; Cornell's is Workspace-for-Education and may be admin-blocked — see the
+# plan). Surfaced in README.md and the post-run reminder when a Google client is set.
+gmail_accounts: [flungster@gmail.com, felix.lung@gmail.com, fl10@cornell.edu]
 
 # --- installer URLs (overridable in tests with file://...) ------------------------------------------
 hermes_install_url: https://hermes-agent.nousresearch.com/install.sh

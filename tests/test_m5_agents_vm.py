@@ -446,10 +446,12 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     ws = stub_state.parent / "vm-workspace"
     inv = invocations(stub_state)
 
-    # base: one apt pass with every package; uv present
+    # base: one apt pass with every package (the final list is recorded in the plan's
+    # deviations); uv present
     assert len([l for l in inv if l.startswith("apt-get install")]) == 1
     apt = [l for l in inv if l.startswith("apt-get install")][0]
-    for pkg in ("git", "curl", "jq", "ca-certificates", "python3-venv", "nodejs", "npm"):
+    for pkg in ("git", "curl", "jq", "ca-certificates", "python3-venv",
+                "nodejs", "npm", "unzip", "build-essential"):
         assert pkg in apt, f"{pkg} missing from the apt call: {apt}"
 
     # GitHub access
@@ -525,6 +527,11 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     assert inv.count("uv tool install workspace-mcp") == 1, f"workspace-mcp: {inv}"
     assert (home / ".local/bin/workspace-mcp").is_file()
 
+    # Post-run reminder: with a Google client configured, the inboxes that still need
+    # their one-time browser sign-in are named (gmail_accounts, rollout order).
+    for acct in ("flungster@gmail.com", "felix.lung@gmail.com", "fl10@cornell.edu"):
+        assert acct in result.stdout, f"post-run reminder missing {acct}:\n{result.stdout}"
+
 
 def test_vm_rerun_is_quiet(stub_state):
     secrets = _full_secrets(stub_state)
@@ -588,6 +595,10 @@ def test_vm_without_optional_secrets_skips_their_features(stub_state):
 
     assert not any(l.startswith("gh auth login") for l in inv), f"login without a token: {inv}"
     assert not any(l.startswith("git clone") for l in inv), f"clones without a token: {inv}"
+
+    assert "flungster@gmail.com" not in result.stdout, (
+        f"sign-in reminder shown without a Google client: {result.stdout}"
+    )
 
 
 def test_vm_with_omlx_models_but_no_key(stub_state):
