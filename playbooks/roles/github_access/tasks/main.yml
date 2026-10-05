@@ -19,15 +19,19 @@
   register: gh_auth_status
   failed_when: false
   changed_when: false
+  environment:
+    HOME: "{{ agents_vm_home }}"
 
-# The token goes to gh over stdin (never argv, never a file in /workspace). To rotate
-# it: delete {{ agents_vm_home }}/.config/gh on the VM and re-run.
+# The token goes to gh over stdin (never argv, never a file in /workspace). It is passed
+# as GH_LOGIN_TOKEN, not GITHUB_TOKEN: gh refuses to store credentials while GITHUB_TOKEN
+# is set in its environment. To rotate it: delete {{ agents_vm_home }}/.config/gh on the
+# VM and re-run.
 - name: Log in to GitHub with the fine-grained PAT (VM)
   ansible.builtin.shell: |
     set -eu
-    printf '%s' "$GITHUB_TOKEN" | gh auth login --with-token --hostname github.com
+    printf '%s' "$GH_LOGIN_TOKEN" | gh auth login --with-token --hostname github.com
   environment:
-    GITHUB_TOKEN: "{{ github_token }}"
+    GH_LOGIN_TOKEN: "{{ github_token }}"
     HOME: "{{ agents_vm_home }}"
   when: (github_token | default('') != '') and ((gh_auth_status.rc | default(1)) != 0)
 
