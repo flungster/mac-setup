@@ -14,7 +14,7 @@
 # HERMES_HOME pins the checkout where presence is checked; like this Mac's Oh My Zsh,
 # Hermes updates itself afterwards, so a re-run never upgrades it.
 - name: Install Hermes Agent if not present (VM)
-  ansible.builtin.shell: sh {{ agents_vm_root }}/tmp/hermes-install.sh --non-interactive
+  ansible.builtin.shell: bash {{ agents_vm_root }}/tmp/hermes-install.sh --non-interactive
   args:
     creates: "{{ hermes_home }}/hermes-agent"
   environment:

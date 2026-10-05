@@ -12,7 +12,7 @@
 # The official installer lands the binary in ~/.opencode/bin (HOME is pinned to the
 # VM user) and appends a PATH line to its shell rc.
 - name: Install OpenCode if not present (VM)
-  ansible.builtin.shell: sh {{ agents_vm_root }}/tmp/opencode-install.sh
+  ansible.builtin.shell: bash {{ agents_vm_root }}/tmp/opencode-install.sh
   args:
     creates: "{{ agents_vm_home }}/.opencode/bin/opencode"
   environment:
