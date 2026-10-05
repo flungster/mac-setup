@@ -130,8 +130,10 @@ run_playbook() {
     log "playbooks/site.yml not present yet: skipping (lands in a later milestone)"
   fi
 
-  # The agents VM playbook is the second half of an opt-in run (validated in main):
-  # it needs OrbStack (installed by site.yml above) and a vault of secrets.
+  # The agents VM playbook is the opt-in second half (the choice was made in
+  # choose_agents_vm; a "yes" without the secrets file already failed this run in
+  # main, so nothing is half-installed). It installs or updates OrbStack itself —
+  # the Mac baseline no longer carries it.
   if [ "${AGENTS_VM_CHOICE:-false}" != true ]; then
     return 0
   fi
@@ -139,32 +141,68 @@ run_playbook() {
     log "playbooks/agents-vm.yml not present yet: skipping (lands in a later milestone)"
     return 0
   fi
-  log "running agents VM playbook (playbooks/agents-vm.yml)"
+  # The array is never empty (the vault-password argument is always present), which
+  # keeps bash 3.2 + set -u happy — expanding an empty array would be fatal there.
+  local extra_args=(--ask-vault-pass)   # no AGENTS_VAULT_PASSWORD_FILE: ask, don't fail
   if [ -n "${AGENTS_VAULT_PASSWORD_FILE:-}" ]; then
-    (cd "$REPO_ROOT" && ansible-playbook -i playbooks/hosts \
-      --vault-password-file "$AGENTS_VAULT_PASSWORD_FILE" playbooks/agents-vm.yml)
-  else
-    (cd "$REPO_ROOT" && ansible-playbook -i playbooks/hosts \
-      playbooks/agents-vm.yml)
+    extra_args=(--vault-password-file "$AGENTS_VAULT_PASSWORD_FILE")
   fi
+  if [ -n "${AGENTS_VAULT_SECRETS_FILE:-}" ]; then   # non-default location (tests)
+    extra_args+=(-e "agents_vm_secrets_file=$AGENTS_VAULT_SECRETS_FILE")
+  fi
+  log "running agents VM playbook (playbooks/agents-vm.yml)"
+  (cd "$REPO_ROOT" && ansible-playbook -i playbooks/hosts "${extra_args[@]}" \
+    playbooks/agents-vm.yml)
 }
 
-# The agents VM is opt-in and needs secrets, so it never runs by default.
-# PROVISION_AGENTS_VM=1/true opts in (automation, tests); AGENTS_VAULT_PASSWORD_FILE
-# points at the file holding the vault password for playbooks/secrets/. Validated
-# first in main so a bad answer fails before anything is installed.
+# The agents VM (and with it OrbStack, which the playbook now installs itself) is
+# opt-in and needs secrets: ask on every interactive run — the question covers an
+# update, so it is asked even when a VM already exists (default No) — and let
+# automation pre-answer with PROVISION_AGENTS_VM=1/true|0/false (invalid values
+# fail before anything runs). No terminal attached: No, never hang. On "yes", main
+# then checks the secrets file exists (require_agents_vm_secrets) BEFORE any install
+# work; AGENTS_VAULT_PASSWORD_FILE points at the vault password file, and without it
+# ansible is asked interactively. AGENTS_VAULT_SECRETS_FILE names a non-default
+# secrets file (kept for tests; the playbook's own check is the backstop).
 choose_agents_vm() {
   AGENTS_VM_CHOICE=false
   case "${PROVISION_AGENTS_VM:-}" in
-    "" ) log "agents VM: not provisioning (set PROVISION_AGENTS_VM=1 to opt in)" ;;
-    1|true ) AGENTS_VM_CHOICE=true; log "agents VM: provisioning (PROVISION_AGENTS_VM set)" ;;
-    0|false ) log "agents VM: skipping (PROVISION_AGENTS_VM set)" ;;
+    "" ) : ;;   # no pre-answer: ask below (or default No when nobody can be asked)
+    1|true ) AGENTS_VM_CHOICE=true; log "agents VM: provisioning (PROVISION_AGENTS_VM pre-answered yes)"; return 0 ;;
+    0|false ) log "agents VM: skipping (PROVISION_AGENTS_VM pre-answered no; OrbStack and the VM left as they are)"; return 0 ;;
     * ) log "error: PROVISION_AGENTS_VM must be 1/true or 0/false (got '${PROVISION_AGENTS_VM}')" >&2; return 1 ;;
+  esac
+
+  if [ ! -t 0 ]; then
+    log "agents VM: no terminal attached — skipping (OrbStack and the VM left as they are; set PROVISION_AGENTS_VM=1 to opt in)"
+    return 0
+  fi
+
+  local reply=""
+  printf 'Install/update OrbStack and the agents VM (Hermes Agent + OpenCode)? [y/N] '
+  IFS= read -r reply || true
+  case "$reply" in
+    y|Y ) AGENTS_VM_CHOICE=true; log "agents VM: provisioning (yes at the prompt)" ;;
+    * ) AGENTS_VM_CHOICE=false; log "agents VM: skipping (OrbStack and the VM left as they are)" ;;
   esac
 }
 
+# A "yes" means installing/updating OrbStack and provisioning the VM — both need the
+# secrets file (the playbook's own pre-flight is the backstop for direct runs). Fail
+# here, before any install work at all.
+require_agents_vm_secrets() {
+  local secrets="${AGENTS_VAULT_SECRETS_FILE:-$REPO_ROOT/playbooks/secrets/agents-vm-secrets.yml}"
+  if [ ! -f "$secrets" ]; then
+    log "error: agents VM secrets file not found: $secrets (nothing was installed)" >&2
+    log "(copy playbooks/secrets/agents-vm-secrets.example.yml to that name, fill it in and encrypt" >&2
+    log "it with ansible-vault — see README.md → Agents VM; then re-run)" >&2
+    return 1
+  fi
+}
+
 main() {
-  choose_agents_vm  # first: fail fast on a bad opt-in, before anything is installed
+  choose_agents_vm                # first: ask, and fail fast on a bad pre-answer
+  if [ "${AGENTS_VM_CHOICE:-false}" = true ]; then require_agents_vm_secrets; fi
   ensure_command_line_tools
   ensure_xcode_license
   ensure_homebrew
