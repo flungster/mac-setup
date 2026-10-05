@@ -4,3 +4,6 @@ __pycache__/
 
 # the real agents VM secrets (the .example template is committed)
 playbooks/secrets/agents-vm-secrets.yml
+
+# editor backups (one of the secrets template slipped in once)
+*~
