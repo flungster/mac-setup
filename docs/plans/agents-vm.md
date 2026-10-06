@@ -26,7 +26,7 @@ Mac Studio M1 Max (32 GB, static IP)
 │       └── google-workspace-mcp.service  127.0.0.1        (--read-only, gmail+calendar)
 │
 ├── LAN devices  → http://<mac-ip>:9119        Hermes dashboard
-├── macOS        → ssh agents@orb               OrbStack built-in SSH
+├── macOS        → ssh <macOS user>@agents (127.0.0.1:32222)  OrbStack's SSH server
 └── VM → LAN     → http://llm.internal:8000/v1  oMLX (Mac Studio M3 Ultra), Home Assistant
 ```
 
@@ -96,11 +96,12 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 3. GitHub: fine-grained PAT — owner `flungster`, repos `mac-setup` + `health-tracker`; Contents, Issues, Pull requests = Read and write; choose expiry (~1 year).
 4. Fill the Vault file; choose the Vault password.
 5. After provisioning: authorize each Gmail account once (browser link; SSH tunnel to the VM's callback port if needed). Click through "unverified app" warning.
-6. Optional: confirm OrbStack settings in the app on first launch.
+6. After provisioning, in the VM (`orb -m agents`): sign Claude Code and Codex in once — run `claude`, then `/login`; `codex login --device-auth`. The playbook can't sign them in; it reminds you on every run until both are done.
+7. Optional: confirm OrbStack settings in the app on first launch.
 
 ## Verification
 
-- `ssh agents@orb` works; `orb list` shows `agents` as isolated.
+- From the Mac, `orb -m agents` opens a shell in the VM (ssh to 127.0.0.1:32222 as your Mac user — the `<macOS user>@agents` login the playbook uses — works too); `orb list` shows `agents` as isolated.
 - From another LAN device, `http://<mac-ip>:9119` prompts for login; `/api/status` reports `auth_required: true`, provider `basic`. If unreachable, check `machines.expose_ports_to_lan` for isolated machines.
 - Telegram: owner gets replies; other users are ignored.
 - Hermes → OpenCode task edits a file in `/workspace/<repo>`, visible in `~/agent_workspaces/<repo>` on the Mac.
