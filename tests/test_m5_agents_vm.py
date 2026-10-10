@@ -661,6 +661,12 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
         f"omlx models: {cfg['providers']['omlx']}"
     )
     assert cfg["providers"]["omlx"]["discover_models"] is False, f"discover: {cfg['providers']['omlx']}"
+    # voice: TTS and STT on the same oMLX server, by its alias model IDs (vars-file defaults)
+    assert cfg["tts"] == {"provider": "openai", "openai": {
+        "base_url": "http://llm.internal:8000/v1", "model": "text-to-speech"}}, f"tts: {cfg.get('tts')}"
+    assert cfg["stt"] == {"provider": "openai", "openai": {"model": "speech-to-text"}}, f"stt: {cfg.get('stt')}"
+    assert "STT_OPENAI_BASE_URL=http://llm.internal:8000/v1" in hermes_env, f".env:\n{hermes_env}"
+    assert "VOICE_TOOLS_OPENAI_KEY=omlx-key" in hermes_env, f".env:\n{hermes_env}"
     mcp = cfg["mcp_servers"]["google_workspace"]
     assert str(mcp["command"]).endswith("/.local/bin/workspace-mcp"), f"mcp command: {mcp}"
     assert "--read-only" in mcp["args"] and "gmail" in mcp["args"] and "calendar" in mcp["args"], f"mcp args: {mcp}"
@@ -815,6 +821,26 @@ def test_vm_with_omlx_models_but_no_key(stub_state):
     import yaml
     cfg = yaml.safe_load((home / ".hermes/config.yaml").read_text(encoding="utf-8"))
     assert "key_env" not in cfg["providers"]["omlx"], f"no key configured, yet one was referenced: {cfg}"
+    hermes_env = (home / ".hermes/.env").read_text(encoding="utf-8")
+    assert "VOICE_TOOLS_OPENAI_KEY" not in hermes_env, f"no key configured, yet a voice key was set: {hermes_env}"
+
+
+def test_vm_without_voice_models_leaves_hermes_voice_defaults(stub_state):
+    import yaml
+
+    result = _run_vm(
+        stub_state, secrets_path=_full_secrets(stub_state),
+        extra_vars=("local_stt_model=", "local_tts_model="),
+    )
+    _require_ok(result)
+
+    home = stub_state.parent / "vm-home"
+    cfg = yaml.safe_load((home / ".hermes/config.yaml").read_text(encoding="utf-8"))
+    assert "tts" not in cfg and "stt" not in cfg, f"voice configured without model IDs: {cfg}"
+    hermes_env = (home / ".hermes/.env").read_text(encoding="utf-8")
+    assert "STT_OPENAI_BASE_URL" not in hermes_env and "VOICE_TOOLS_OPENAI_KEY" not in hermes_env, (
+        f"voice keys set without model IDs: {hermes_env}"
+    )
 
 
 def test_vm_defaults_to_the_local_model_and_offers_only_listed_models(stub_state):

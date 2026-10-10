@@ -23,6 +23,19 @@ approvals:
 # oMLX /v1/models) and re-run to enable the local endpoint.
 
 {% endif %}
+{% if local_tts_model | default('') %}tts:   # voice replies via oMLX's OpenAI-compatible /audio/speech (key: VOICE_TOOLS_OPENAI_KEY)
+  provider: openai
+  openai:
+    base_url: {{ local_llm_base_url }}
+    model: {{ local_tts_model }}
+
+{% endif %}
+{% if local_stt_model | default('') %}stt:   # voice input via oMLX's /audio/transcriptions (endpoint: STT_OPENAI_BASE_URL in .env)
+  provider: openai
+  openai:
+    model: {{ local_stt_model }}
+
+{% endif %}
 {%- if (google_oauth_client_id | default('') != '') and (google_oauth_client_secret | default('') != '') -%}
 mcp_servers:
   google_workspace:

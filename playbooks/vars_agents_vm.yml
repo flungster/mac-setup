@@ -44,6 +44,8 @@ hermes_default_model: brain                 # Hermes' main model (local oMLX; cl
 opencode_default_model: anthropic/claude-sonnet-4-5  # OpenCode's default
 local_llm_base_url: http://llm.internal:8000/v1    # oMLX (OpenAI-compatible), on the other Studio
 local_llm_models: [brain, local-flash, nemo-fast]  # model IDs from your oMLX /v1/models; empty = Anthropic only
+local_stt_model: speech-to-text   # Hermes voice: oMLX speech-to-text alias; empty = Hermes' own STT default
+local_tts_model: text-to-speech   # Hermes voice: oMLX text-to-speech alias; empty = Hermes' own TTS default
 
 # --- services -------------------------------------------------------------------------------
 opencode_port: 4096            # VM-local only; the Hermes bridge calls it from inside
