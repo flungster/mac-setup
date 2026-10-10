@@ -26,11 +26,14 @@
     path: "{{ agents_vm_home }}/.config/opencode"
     state: directory
 
+# Registered for restart_when_changed below: a running server only reads opencode.json
+# at start, so changed keys/models need it restarted; an untouched run never kills it.
 - name: Write the OpenCode config (providers with keys, default model, loopback server)
   ansible.builtin.template:
     src: opencode.json.j2
     dest: "{{ agents_vm_home }}/.config/opencode/opencode.json"
     mode: "0600"
+  register: opencode_config
 
 - name: Remove the old OpenCode env file (keys now live in opencode.json)
   ansible.builtin.file:
@@ -43,6 +46,8 @@
     name: systemd_unit
   vars:
     unit_name: opencode-server
+    # Restart a running server when its config (keys, models) changed this run.
+    restart_when_changed: "{{ opencode_config.changed | bool }}"
     # Rendered from THIS role's templates dir (lookups resolve against the including
     # role); systemd_unit writes it with copy.
     unit_content: "{{ lookup('template', 'opencode-server.service.j2') }}"

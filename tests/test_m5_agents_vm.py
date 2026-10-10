@@ -513,8 +513,9 @@ def _run_vm(stub_state, secrets_path=None, extra_vars=(), with_installers=True):
     )
 
 
-def _full_secrets(stub_state):
-    """Everything filled in: both agents get Anthropic + oMLX, plus Telegram/Google/GitHub."""
+def _full_secrets(stub_state, **overrides):
+    """Everything filled in: both agents get Anthropic + oMLX, plus Telegram/Google/GitHub.
+    Pass overrides to replace individual values (e.g. hermes_dashboard_password)."""
     return _write_secrets(
         stub_state,
         telegram_bot_token="123456:STUB-BOT",
@@ -523,6 +524,7 @@ def _full_secrets(stub_state):
         google_oauth_client_secret="stub-client-secret",
         github_token="github_pat_stub",
         local_llm_api_key="omlx-key",
+        **overrides,
     )
 
 
@@ -581,7 +583,11 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     secrets = _full_secrets(stub_state)
     result = _run_vm(
         stub_state, secrets_path=secrets,
-        extra_vars=('{"local_llm_models": ["qwen3-coder-480b", "gpt-oss-120b"]}',),
+        extra_vars=(
+            '{"local_llm_models": ["qwen3-coder-480b", "gpt-oss-120b"]}',
+            # the vars-file default model (brain) is not in this stub list — name one that is
+            "hermes_default_model=qwen3-coder-480b",
+        ),
     )
     _require_ok(result)
 
@@ -646,10 +652,15 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
 
     import yaml
     cfg = yaml.safe_load((home / ".hermes/config.yaml").read_text(encoding="utf-8"))
-    assert cfg["model"] == {"provider": "anthropic", "default": "claude-sonnet-4-6"}, f"model: {cfg['model']}"
+    assert cfg["model"] == {"provider": "custom:omlx", "default": "qwen3-coder-480b"}, f"model: {cfg['model']}"
     assert cfg["approvals"] == {"mode": "smart"}, f"approvals: {cfg['approvals']}"
     assert cfg["providers"]["omlx"]["api"] == "http://llm.internal:8000/v1"
     assert cfg["providers"]["omlx"]["key_env"] == "OMLX_API_KEY"
+    # exactly the configured models are offered (discover off — /v1/models also lists TTS/STT)
+    assert cfg["providers"]["omlx"]["models"] == ["qwen3-coder-480b", "gpt-oss-120b"], (
+        f"omlx models: {cfg['providers']['omlx']}"
+    )
+    assert cfg["providers"]["omlx"]["discover_models"] is False, f"discover: {cfg['providers']['omlx']}"
     mcp = cfg["mcp_servers"]["google_workspace"]
     assert str(mcp["command"]).endswith("/.local/bin/workspace-mcp"), f"mcp command: {mcp}"
     assert "--read-only" in mcp["args"] and "gmail" in mcp["args"] and "calendar" in mcp["args"], f"mcp args: {mcp}"
@@ -699,7 +710,10 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
 def test_vm_rerun_is_quiet(stub_state):
     secrets = _full_secrets(stub_state)
 
-    result1 = _run_vm(stub_state, secrets_path=secrets, extra_vars=('{"local_llm_models": ["qwen3-coder-480b"]}',))
+    result1 = _run_vm(
+        stub_state, secrets_path=secrets,
+        extra_vars=('{"local_llm_models": ["qwen3-coder-480b"]}', "hermes_default_model=qwen3-coder-480b"),
+    )
     _require_ok(result1)
 
     home = stub_state.parent / "vm-home"
@@ -708,7 +722,10 @@ def test_vm_rerun_is_quiet(stub_state):
     clones_before = [l for l in invocations(stub_state) if l.startswith("git clone")]
     baseline = len(invocations(stub_state))
 
-    result2 = _run_vm(stub_state, secrets_path=secrets, extra_vars=('{"local_llm_models": ["qwen3-coder-480b"]}',))
+    result2 = _run_vm(
+        stub_state, secrets_path=secrets,
+        extra_vars=('{"local_llm_models": ["qwen3-coder-480b"]}', "hermes_default_model=qwen3-coder-480b"),
+    )
     _require_ok(result2)
 
     new = invocations(stub_state)[baseline:]
@@ -731,10 +748,15 @@ def test_vm_rerun_is_quiet(stub_state):
 def test_vm_without_optional_secrets_skips_their_features(stub_state):
     import json
 
-    # Only the two required keys: no Telegram, Google, GitHub or oMLX key.
+    # Only the two required keys: no Telegram, Google, GitHub or oMLX key. The model
+    # knobs are non-secret vars (not secrets), so pin them to "no omlx at all" — this
+    # test is about secret-gated features, not the local endpoint.
     secrets = _write_secrets(stub_state)
 
-    result = _run_vm(stub_state, secrets_path=secrets)
+    result = _run_vm(
+        stub_state, secrets_path=secrets,
+        extra_vars=('{"local_llm_models": []}', "hermes_default_provider=anthropic"),
+    )
     _require_ok(result)
 
     home = stub_state.parent / "vm-home"
@@ -776,7 +798,11 @@ def test_vm_with_omlx_models_but_no_key(stub_state):
     secrets = _full_secrets(stub_state)  # includes local_llm_api_key — unset it again below
     result = _run_vm(
         stub_state, secrets_path=secrets,
-        extra_vars=('{"local_llm_models": ["qwen3-coder-480b"]}', "local_llm_api_key="),
+        extra_vars=(
+            '{"local_llm_models": ["qwen3-coder-480b"]}', "local_llm_api_key=",
+            # the vars-file default model (brain) is not in this stub list — name one that is
+            "hermes_default_model=qwen3-coder-480b",
+        ),
     )
     _require_ok(result)
 
@@ -789,6 +815,84 @@ def test_vm_with_omlx_models_but_no_key(stub_state):
     import yaml
     cfg = yaml.safe_load((home / ".hermes/config.yaml").read_text(encoding="utf-8"))
     assert "key_env" not in cfg["providers"]["omlx"], f"no key configured, yet one was referenced: {cfg}"
+
+
+def test_vm_defaults_to_the_local_model_and_offers_only_listed_models(stub_state):
+    # The vars file is the source of truth: with no overrides, Hermes must default to its
+    # local provider/model and offer exactly the listed models (no oMLX key in this plain
+    # secrets file — the provider still renders, just without a key_env).
+    import yaml
+
+    knobs = _vars_agents_vm()   # loaded from vars_agents_vm.yml — no test-owned copy
+    result = _run_vm(stub_state, secrets_path=_write_secrets(stub_state))
+    _require_ok(result)
+
+    home = stub_state.parent / "vm-home"
+    cfg = yaml.safe_load((home / ".hermes/config.yaml").read_text(encoding="utf-8"))
+    assert cfg["model"] == {
+        "provider": knobs["hermes_default_provider"],
+        "default": knobs["hermes_default_model"],
+    }, f"model: {cfg['model']}"
+    assert cfg["providers"]["omlx"]["models"] == list(knobs["local_llm_models"]), (
+        f"omlx models: {cfg['providers']['omlx']}"
+    )
+
+
+def test_vm_fails_when_omlx_default_has_no_models(stub_state):
+    # hermes_default_provider (the vars-file default) points at omlx but the model list is
+    # empty: fail before writing a config whose default provider has no models.
+    result = _run_vm(
+        stub_state, secrets_path=_write_secrets(stub_state),
+        extra_vars=('{"local_llm_models": []}',),
+    )
+
+    assert result.returncode != 0, f"run succeeded with an omlx default and no models:\n{result.stdout}"
+    assert "hermes_default_provider" in result.stdout and "local_llm_models" in result.stdout, (
+        f"inconsistency not named:\n{result.stdout}"
+    )
+
+
+def test_vm_fails_when_hermes_default_model_not_in_local_models(stub_state):
+    # The default model must be one of the models actually offered (discover is off, so a
+    # listed-only picker would never show it).
+    result = _run_vm(
+        stub_state, secrets_path=_write_secrets(stub_state),
+        extra_vars=('{"local_llm_models": ["qwen3-coder-480b"]}', "hermes_default_model=brain"),
+    )
+
+    assert result.returncode != 0, (
+        f"run succeeded although the default model is not offered:\n{result.stdout}"
+    )
+    assert "hermes_default_model" in result.stdout and "local_llm_models" in result.stdout, (
+        f"inconsistency not named:\n{result.stdout}"
+    )
+
+
+def test_vm_rotated_dashboard_password_restarts_the_running_services(stub_state):
+    # A running service only reads its config/env at start: rotating a managed .env key must
+    # restart the services that read it (dashboard and gateway share ~/.hermes/.env) — but
+    # not opencode-server, whose own config did not change. The full secrets include a bot
+    # token so the gateway unit exists on both runs (the stub keeps enable state between).
+    secrets1 = _full_secrets(stub_state, hermes_dashboard_password="first-password")
+    result1 = _run_vm(stub_state, secrets_path=secrets1)
+    _require_ok(result1)
+
+    baseline = len(invocations(stub_state))
+    # same path — _write_secrets rewrites it with the rotated password between runs
+    secrets2 = _full_secrets(stub_state, hermes_dashboard_password="second-password")
+    result2 = _run_vm(stub_state, secrets_path=secrets2)
+    _require_ok(result2)
+
+    new = invocations(stub_state)[baseline:]
+    assert "systemctl restart hermes-dashboard" in new, (
+        f"no dashboard restart after the password rotation: {new}"
+    )
+    assert "systemctl restart hermes-gateway" in new, (
+        f"no gateway restart although it shares ~/.hermes/.env: {new}"
+    )
+    assert not any(l.startswith("systemctl restart opencode-server") for l in new), (
+        f"opencode-server restarted although its config did not change: {new}"
+    )
 
 
 def test_vm_signed_in_clis_get_no_reminder(stub_state):

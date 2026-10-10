@@ -2,7 +2,11 @@
 # Shared systemd unit lifecycle for the VM's services (opencode-server, hermes-dashboard,
 # hermes-gateway): write the unit file under {{ agents_vm_root }}/etc/systemd,
 # daemon-reload when it changed, enable --now on boot when not already enabled, and
-# restart only when the unit file actually changed AND it was running. The caller renders
+# restart only when something the running service reads actually changed AND it was
+# already enabled (a fresh enable --now starts with the new state anyway). "Something"
+# is either the unit file or, when the caller passes restart_when_changed: true (default
+# false), a config/env file written outside this role — e.g. Hermes' .env or OpenCode's
+# opencode.json, which the unit reads at process start. The caller renders
 # its OWN role-relative template and passes the result as unit_content — template lookups
 # resolve against the including role, which is why this one writes with copy. The unit's
 # own gating (e.g. the gateway only when a bot token is set) stays at the call site:
@@ -38,9 +42,14 @@
   become: true
   when: (systemd_unit_enabled_check.stdout | default('') | trim) != 'enabled'
 
-- name: Restart {{ unit_name }} to pick up its new unit (VM)
+# A unit that was already enabled is still running with its OLD config/env: restart it
+# when the unit file changed OR the caller reports a change in a config/env file written
+# outside this role (restart_when_changed). A fresh `enable --now` above needs no restart
+# — it starts with the new state. enabled_check was captured before enable, so this only
+# fires for services that were running already.
+- name: Restart {{ unit_name }} to pick up its new unit or config (VM)
   ansible.builtin.shell: systemctl restart {{ unit_name }}
   become: true
   when: >-
-    (systemd_unit_file.changed | bool) and
+    ((systemd_unit_file.changed | bool) or (restart_when_changed | default(false) | bool)) and
     ((systemd_unit_enabled_check.stdout | default('') | trim) == 'enabled')

@@ -8,6 +8,8 @@ EnvironmentFile={{ hermes_home }}/.env
 ExecStart={{ agents_vm_home }}/.local/bin/hermes dashboard --host 0.0.0.0 --port {{ hermes_dashboard_port }} --no-open
 Restart=always
 RestartSec=10
+# Exit 78 (EX_CONFIG): another dashboard already serves this host — park it, don't loop
+RestartPreventExitStatus=78
 
 [Install]
 WantedBy=multi-user.target

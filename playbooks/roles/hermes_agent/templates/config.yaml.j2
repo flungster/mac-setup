@@ -3,22 +3,26 @@
 # when the Google OAuth client is configured below.
 
 model:
-  provider: anthropic
+  provider: {{ hermes_default_provider }}
   default: {{ hermes_default_model }}
 
 approvals:
   mode: smart   # keep dangerous-command approval on — the prompt-injection guardrail
 
+# Ansible's Jinja env trims the first newline after a block tag, so bare tags on their
+# own lines emit nothing; loop bodies must carry their newline inside the body.
 {% if local_llm_models | length > 0 %}providers:
   omlx:
     api: {{ local_llm_base_url }}
 {% if local_llm_api_key | default('') %}    key_env: OMLX_API_KEY
-{% endif -%}{% else -%}
-
-# No omlx provider yet: local_llm_models is empty. Add model IDs (from your
+{% endif %}
+    models:   # exactly the configured set — /v1/models also lists TTS/STT
+{% for m in local_llm_models %}      - {{ m }}
+{% endfor %}    discover_models: false   # offer exactly the list above, not /v1/models' full set
+{% else %}# No omlx provider yet: local_llm_models is empty. Add model IDs (from your
 # oMLX /v1/models) and re-run to enable the local endpoint.
 
-{% endif -%}
+{% endif %}
 {%- if (google_oauth_client_id | default('') != '') and (google_oauth_client_secret | default('') != '') -%}
 mcp_servers:
   google_workspace:

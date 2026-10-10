@@ -39,10 +39,11 @@ nodejs_major: 24
 nodesource_key_url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
 
 # --- AI providers ---------------------------------------------------------------------------
-hermes_default_model: claude-sonnet-4-6            # Hermes' main model (Anthropic)
+hermes_default_provider: custom:omlx        # Hermes' main provider; 'anthropic' to default to the cloud
+hermes_default_model: brain                 # Hermes' main model (local oMLX; claude-sonnet-4-6 for Anthropic)
 opencode_default_model: anthropic/claude-sonnet-4-5  # OpenCode's default
 local_llm_base_url: http://llm.internal:8000/v1    # oMLX (OpenAI-compatible), on the other Studio
-local_llm_models: []      # model IDs from your oMLX /v1/models; empty = Anthropic only
+local_llm_models: [brain, local-flash, nemo-fast]  # model IDs from your oMLX /v1/models; empty = Anthropic only
 
 # --- services -------------------------------------------------------------------------------
 opencode_port: 4096            # VM-local only; the Hermes bridge calls it from inside

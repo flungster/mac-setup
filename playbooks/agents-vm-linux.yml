@@ -16,6 +16,21 @@
     ansible_python_interpreter: /usr/bin/python3   # Ubuntu noble; tests override with the venv
 
   tasks:
+    # Fail before touching the VM when Hermes would default to omlx without a usable model:
+    # config.yaml is fully managed, so an inconsistent pair would render a default provider
+    # with no models (or a default model the picker never offers). The Mac half may have
+    # run already — it is idempotent, so failing here costs nothing.
+    - name: Refuse an omlx default without a usable model (VM)
+      ansible.builtin.fail:
+        msg: >-
+          Hermes would default to omlx, but the model config is inconsistent: with
+          hermes_default_provider="{{ hermes_default_provider }}" you need a non-empty
+          local_llm_models that includes hermes_default_model ({{ hermes_default_model }}).
+          Fix playbooks/vars_agents_vm.yml, or set hermes_default_provider to anthropic.
+      when: >-
+        (((hermes_default_provider | string).split(':') | select('equalto', 'omlx') | list) | length > 0) and
+        ((local_llm_models | length == 0) or (hermes_default_model not in local_llm_models))
+
     - name: Load the agents VM secrets (again — play variables do not cross plays)
       ansible.builtin.include_vars: file="{{ agents_vm_secrets_file }}"
 

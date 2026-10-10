@@ -133,10 +133,12 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 
 ## Open items
 
-- oMLX model IDs to expose (from `curl http://llm.internal:8000/v1/models`) and which is the default for Hermes vs OpenCode.
-- Default Anthropic model for each agent.
+- Default Anthropic model for each agent (Hermes no longer defaults to the cloud — see "local default model" below; OpenCode's is `opencode_default_model`).
 - Whether Cornell permits third-party OAuth access to `fl10@cornell.edu`.
-- Whether the dashboard should start on boot or only on demand.
+
+Resolved open items:
+- **oMLX model IDs and the default split** — `local_llm_models` lists `brain`, `local-flash`, `nemo-fast`; Hermes defaults to the local model (`hermes_default_provider: custom:omlx`, `hermes_default_model: brain`), OpenCode keeps its Anthropic default. See the "local default model" deviation below.
+- **Dashboard on boot or on demand** — it is a systemd unit, `enable --now` plus `Restart=always`: up at boot and after crashes (see "services restart on config change" below).
 
 ## Changes since implementation (docs/plans/orbstack-opt-in.md)
 
@@ -157,3 +159,6 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 - **workspace-mcp** is spawned by Hermes per session over stdio (the `mcp_servers` registration), so it has no systemd service of its own — the architecture diagram above shows a `google-workspace-mcp.service` that does not exist.
 - **VM base packages** final list: `git curl jq ca-certificates python3-venv nodejs unzip build-essential` (`unzip`/`build-essential` restored per the review; `python3` ships with the Ubuntu image). `nodejs` comes from a NodeSource repo pinned to `nodejs_major` (24) — noble ships 18 and the skills CLI needs >= 22.20; NodeSource's nodejs bundles npm/npx, so Ubuntu's `npm` is dropped (it conflicts).
 - **The shared unit role's signature:** it takes `unit_name` plus the caller-rendered unit text (`unit_content`, via each role's own template lookup — cross-role `template:` lookups don't resolve against the caller), and a unit's gating (the gateway's token check) is `when:` on the include rather than an `enabled_when` param. Behaviour is byte-identical to the three inlined blocks it replaced.
+- **Local default model:** Hermes defaults to oMLX (`hermes_default_provider: custom:omlx`, `hermes_default_model: brain` — both vars in `playbooks/vars_agents_vm.yml`; the spec assumed Anthropic as default). The omlx provider entry lists exactly `local_llm_models` with `discover_models: false`, so the `/model` picker offers only those (the server's full list also includes TTS/STT models). The Linux half fails before touching the VM when an omlx default has no usable model (empty `local_llm_models`, or a default not in the list). Per-session switching: `/model custom:omlx:<id>` / `/model anthropic:<id>`.
+- **Services restart on config change:** the shared unit role accepts `restart_when_changed` (default false) — hermes-dashboard and hermes-gateway pass it the changed-state of Hermes' `.env`, opencode-server passes its `opencode.json` change. A running service only reads those at start, so a rotated key must restart it; an untouched run (or one where only other services' files changed) never kills a service.
+- **Dashboard unit parks on exit 78:** `RestartPreventExitStatus=78` — Hermes refuses to start (exit 78) when another dashboard already serves the host; without it, `Restart=always` would loop every 10 s with nothing listening.
