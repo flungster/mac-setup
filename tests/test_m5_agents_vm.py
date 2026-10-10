@@ -921,6 +921,30 @@ def test_vm_rotated_dashboard_password_restarts_the_running_services(stub_state)
     )
 
 
+def test_vm_changed_hermes_config_restarts_the_running_services(stub_state):
+    # config.yaml is read at process start too: a re-run that changes only config.yaml (here
+    # the default model; .env untouched) must restart the dashboard and gateway — but not
+    # opencode-server, whose own config did not change.
+    secrets = _full_secrets(stub_state)
+    result1 = _run_vm(stub_state, secrets_path=secrets)
+    _require_ok(result1)
+
+    baseline = len(invocations(stub_state))
+    result2 = _run_vm(stub_state, secrets_path=secrets, extra_vars=("hermes_default_model=local-flash",))
+    _require_ok(result2)
+
+    new = invocations(stub_state)[baseline:]
+    assert "systemctl restart hermes-dashboard" in new, (
+        f"no dashboard restart after a config.yaml change: {new}"
+    )
+    assert "systemctl restart hermes-gateway" in new, (
+        f"no gateway restart although it reads ~/.hermes/config.yaml: {new}"
+    )
+    assert not any(l.startswith("systemctl restart opencode-server") for l in new), (
+        f"opencode-server restarted although its config did not change: {new}"
+    )
+
+
 def test_vm_signed_in_clis_get_no_reminder(stub_state):
     # Credentials already in place (signed in by hand after an earlier run): no reminder.
     home = stub_state.parent / "vm-home"

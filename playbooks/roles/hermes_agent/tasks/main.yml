@@ -4,9 +4,9 @@
 # The OpenCode bridge is a Hermes skill so the agent can hand coding work to the
 # loopback OpenCode server. .env is managed per key (lineinfile) so keys added in a
 # dashboard survive re-runs; config.yaml is fully managed (hand edits are overwritten).
-# A rotated .env key restarts the dashboard/gateway via systemd_unit's
-# restart_when_changed (a running service only reads .env at start); an untouched run
-# never kills the services.
+# A rotated .env key or a changed config.yaml restarts the dashboard/gateway via
+# systemd_unit's restart_when_changed (a running service only reads both at start); an
+# untouched run never kills the services.
 
 - name: Fetch the Hermes Agent installer script (VM)
   ansible.builtin.get_url:
@@ -70,6 +70,8 @@
     src: config.yaml.j2
     dest: "{{ hermes_home }}/config.yaml"
     mode: "0600"
+  # Feeds restart_when_changed below, alongside the .env result.
+  register: hermes_config
 
 # --- OpenCode bridge skill --------------------------------------------------------------------
 - name: Ensure the opencode-bridge skill dir exists (VM)
@@ -89,8 +91,9 @@
     name: systemd_unit
   vars:
     unit_name: hermes-dashboard
-    # Restart a running dashboard when its .env keys changed this run (rotated password, …).
-    restart_when_changed: "{{ hermes_dotenv.changed | bool }}"
+    # Restart a running dashboard when its .env keys (rotated password, …) or config.yaml
+    # (default model, providers, …) changed this run.
+    restart_when_changed: "{{ (hermes_dotenv.changed | bool) or (hermes_config.changed | bool) }}"
     # Rendered from THIS role's templates dir (lookups resolve against the including
     # role); systemd_unit writes it with copy.
     unit_content: "{{ lookup('template', 'hermes-dashboard.service.j2') }}"
@@ -101,8 +104,9 @@
     name: systemd_unit
   vars:
     unit_name: hermes-gateway
-    # Restart a running gateway when its .env keys changed this run (rotated bot token, …).
-    restart_when_changed: "{{ hermes_dotenv.changed | bool }}"
+    # Restart a running gateway when its .env keys (rotated bot token, …) or config.yaml
+    # (default model, providers, …) changed this run.
+    restart_when_changed: "{{ (hermes_dotenv.changed | bool) or (hermes_config.changed | bool) }}"
     # Rendered from THIS role's templates dir (lookups resolve against the including
     # role); systemd_unit writes it with copy.
     unit_content: "{{ lookup('template', 'hermes-gateway.service.j2') }}"
