@@ -80,6 +80,8 @@ PROVISION_AGENTS_VM=1 AGENTS_VAULT_PASSWORD_FILE=~/.config/mac-setup/agents-vm-v
 
 Answering "yes" without the secrets file stops bootstrap before anything is installed, pointing at the template below. The vault password comes from `AGENTS_VAULT_PASSWORD_FILE` when set; otherwise Ansible asks for it interactively (`--ask-vault-pass`).
 
+**If a run hangs.** The VM half reaches the machine through OrbStack's SSH server; if it sits on a "…(VM)" task with no output for several minutes, Ctrl-C and re-run `./bootstrap.sh` as-is — the playbook is idempotent, so a stopped run leaves nothing half-applied. (The VM host's SSH args already disable connection reuse — `ControlMaster=no` in the playbook — because a stale multiplexed SSH master through that proxy once stalled runs mid-task; if you ever see the hang again, also clear `rm -f ~/.ansible/cp/*` on this Mac before re-running.)
+
 **Secrets, with ansible-vault (step by step).** The keys live in `playbooks/secrets/agents-vm-secrets.yml`, encrypted with Ansible Vault; only the keys you fill in are real, and both this file's name (in `.gitignore`) and its password stay out of git. Only `anthropic_api_key` and `hermes_dashboard_password` are required; the rest (Telegram, Google OAuth client, GitHub PAT, oMLX key) enable their features when present. Every command in these steps runs on the Mac, from a terminal in this repo's checkout:
 
 1. **Get Ansible first (fresh Mac only).** `ansible-vault` ships with the Ansible formula that bootstrap installs — so on a fresh Mac run `./bootstrap.sh` once and answer **n** to the agents-VM question (everything else installs; OrbStack is left alone), then come back here.

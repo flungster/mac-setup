@@ -395,6 +395,11 @@ def test_vm_host_is_reached_through_orbstack_ssh_port_as_the_mac_user(stub_state
     assert got["user"] == "macuser@agents", got
     assert got["key"] == f"{orb_ssh}/id_ed25519", got
     assert f"UserKnownHostsFile={orb_ssh}/known_hosts" in got["args"], got
+    # Connection reuse is disabled for this host: a stale SSH control master through OrbStack's
+    # proxy once stalled runs mid-task (every task gets its own connection instead).
+    assert "-o ControlMaster=no" in got["args"], got
+    # The folded scalar must hold only ssh options — a stray '#' would become an argument.
+    assert "#" not in got["args"], got
     assert got["vm_user"] == "macuser", got
     assert got["vm_home"] == "/home/macuser", got
     # Ansible expands remote_tmp's ~ as ~<ansible_user>, and no Linux user is called

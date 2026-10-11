@@ -146,10 +146,14 @@
     ansible_user: "{{ agents_vm_user }}@{{ agents_vm_name }}"
     ansible_ssh_private_key_file: "{{ orb_ssh_dir }}/id_ed25519"
     ansible_remote_tmp: "{{ agents_vm_home }}/.ansible/tmp"
+    # Connection reuse (Ansible's default ControlMaster) multiplexes every task over one SSH
+    # connection to OrbStack's proxy; a stale master there once stalled runs mid-task. No reuse
+    # costs one local handshake per task — reliability over speed on a LAN hop.
     ansible_ssh_common_args: >-
       -o IdentitiesOnly=yes
       -o UserKnownHostsFile={{ orb_ssh_dir }}/known_hosts
       -o StrictHostKeyChecking=accept-new
+      -o ControlMaster=no
 
 - name: Make the newly added host visible to later plays in this run
   meta: refresh_inventory
