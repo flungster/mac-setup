@@ -51,6 +51,8 @@ local_tts_model: text-to-speech   # Hermes voice: oMLX text-to-speech alias; emp
 opencode_port: 4096            # VM-local only; the Hermes bridge calls it from inside
 hermes_dashboard_port: 9119    # Hermes' default; LAN-reachable via the Mac's IP
 hermes_dashboard_username: admin
+workspace_mcp_port: 9120       # Google Workspace MCP (OAuth 2.1, HTTP); LAN-reachable —
+                               # the dashboard's OAuth callback and the browser consent need it
 
 # --- GitHub -----------------------------------------------------------------------------------
 git_user_name: "Felix Lung"
@@ -61,10 +63,15 @@ gh_deb_url: "https://github.com/cli/cli/releases/download/v{{ gh_version }}/gh_{
 
 # --- Google Workspace MCP -----------------------------------------------------------------------
 google_workspace_tools: [gmail, calendar]  # read-only for now; sending = drop --read-only + re-consent
-# The inboxes workspace-mcp covers, in rollout order (validate the setup on the noisy
-# one first; Cornell's is Workspace-for-Education and may be admin-blocked — see the
-# plan). Surfaced in README.md and the post-run reminder when a Google client is set.
-gmail_accounts: [flungster@gmail.com, felix.lung@gmail.com, fl10@cornell.edu]
+# The inboxes workspace-mcp covers — one OAuth 2.1 MCP server entry per account: Hermes
+# authenticates each on the dashboard's MCP page (picking that Google account), and each
+# entry's tools auto-fill its own user_google_email. Rollout order: validate the setup on
+# the noisy one first; Cornell's is Workspace-for-Education and may be admin-blocked —
+# see the plan. Surfaced in README.md and the post-run reminder when a Google client is set.
+google_workspace_accounts:
+  - { name: personal, email: flungster@gmail.com }
+  - { name: felix,    email: felix.lung@gmail.com }
+  - { name: cornell,  email: fl10@cornell.edu }
 
 # --- installer URLs (overridable in tests with file://...) ------------------------------------------
 hermes_install_url: https://hermes-agent.nousresearch.com/install.sh

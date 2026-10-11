@@ -30,14 +30,17 @@ def _vars_agents_vm():
     Tests must not carry their own copy (same rule as playbook_inventory in
     conftest): a var renamed or dropped there would desync these assertions. The file
     parses as plain YAML — its {{ ... }} values are just strings to the loader. Loading
-    also asserts every key below exists (the plan asks M5 to pin gmail_accounts)."""
+    also asserts every key below exists (the plan asks M5 to pin google_workspace_accounts)."""
     import yaml
 
     with open(REPO_ROOT / "playbooks" / "vars_agents_vm.yml", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-GMAIL_ACCOUNTS = tuple(_vars_agents_vm()["gmail_accounts"])
+# One OAuth 2.1 MCP server entry per account (Hermes authenticates each on the
+# dashboard); loaded from vars_agents_vm.yml — no test-owned copy.
+GOOGLE_WORKSPACE_ACCOUNTS = _vars_agents_vm()["google_workspace_accounts"]
+WORKSPACE_MCP_PORT = int(_vars_agents_vm()["workspace_mcp_port"])
 
 
 def _write_secrets(stub_state, **overrides):
@@ -515,17 +518,17 @@ def _run_vm(stub_state, secrets_path=None, extra_vars=(), with_installers=True):
 
 def _full_secrets(stub_state, **overrides):
     """Everything filled in: both agents get Anthropic + oMLX, plus Telegram/Google/GitHub.
-    Pass overrides to replace individual values (e.g. hermes_dashboard_password)."""
-    return _write_secrets(
-        stub_state,
-        telegram_bot_token="123456:STUB-BOT",
-        telegram_allowed_users="424242",
-        google_oauth_client_id="stub-client-id.apps.googleusercontent.com",
-        google_oauth_client_secret="stub-client-secret",
-        github_token="github_pat_stub",
-        local_llm_api_key="omlx-key",
-        **overrides,
-    )
+    Pass overrides to replace individual values (e.g. a rotated google client key) — they win."""
+    values = {
+        "telegram_bot_token": "123456:STUB-BOT",
+        "telegram_allowed_users": "424242",
+        "google_oauth_client_id": "stub-client-id.apps.googleusercontent.com",
+        "google_oauth_client_secret": "stub-client-secret",
+        "github_token": "github_pat_stub",
+        "local_llm_api_key": "omlx-key",
+    }
+    values.update(overrides)
+    return _write_secrets(stub_state, **values)
 
 
 # ---- playbooks/agents-vm.yml (the parent, what bootstrap actually runs) ----------
@@ -667,11 +670,16 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     assert cfg["stt"] == {"provider": "openai", "openai": {"model": "speech-to-text"}}, f"stt: {cfg.get('stt')}"
     assert "STT_OPENAI_BASE_URL=http://llm.internal:8000/v1" in hermes_env, f".env:\n{hermes_env}"
     assert "VOICE_TOOLS_OPENAI_KEY=omlx-key" in hermes_env, f".env:\n{hermes_env}"
-    mcp = cfg["mcp_servers"]["google_workspace"]
-    assert str(mcp["command"]).endswith("/.local/bin/workspace-mcp"), f"mcp command: {mcp}"
-    assert "--read-only" in mcp["args"] and "gmail" in mcp["args"] and "calendar" in mcp["args"], f"mcp args: {mcp}"
-    assert mcp["env"]["GOOGLE_OAUTH_CLIENT_ID"] == "stub-client-id.apps.googleusercontent.com"
-    assert mcp["env"]["GOOGLE_OAUTH_CLIENT_SECRET"] == "stub-client-secret"
+    # Google Workspace MCP: one OAuth 2.1 entry per configured account — Hermes only
+    # connects (url + auth: oauth); the client keys are NOT in this file.
+    assert set(cfg["mcp_servers"]) == {f"google_workspace_{a['name']}" for a in GOOGLE_WORKSPACE_ACCOUNTS}, (
+        f"mcp servers: {cfg.get('mcp_servers')}"
+    )
+    for acct in GOOGLE_WORKSPACE_ACCOUNTS:
+        entry = cfg["mcp_servers"][f"google_workspace_{acct['name']}"]
+        assert entry == {"url": f"http://127.0.0.1:{WORKSPACE_MCP_PORT}/mcp", "auth": "oauth"}, (
+            f"{acct['name']}: {entry}"
+        )
 
     skill = home / ".hermes/skills/opencode-bridge/SKILL.md"
     assert skill.is_file(), "opencode-bridge skill not written"
@@ -683,6 +691,26 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
         assert inv.count(f"systemctl enable --now {svc}") == 1, f"{svc} not enabled: {inv}"
     dash = (root / "etc/systemd/system/hermes-dashboard.service").read_text(encoding="utf-8")
     assert "--host 0.0.0.0 --port 9119" in dash and "--no-open" in dash, f"dashboard unit: {dash}"
+
+    # workspace-mcp service (OAuth 2.1 multi-user, LAN) + its per-key OAuth client env
+    wsm_env = home / ".config/workspace-mcp/env"
+    assert "GOOGLE_OAUTH_CLIENT_ID=stub-client-id.apps.googleusercontent.com" in wsm_env.read_text(encoding="utf-8")
+    assert "GOOGLE_OAUTH_CLIENT_SECRET=stub-client-secret" in wsm_env.read_text(encoding="utf-8")
+    assert wsm_env.stat().st_mode & 0o777 == 0o600, "workspace-mcp env holds keys but is not 0600"
+    assert inv.count("systemctl enable --now workspace-mcp") == 1, f"workspace-mcp not enabled: {inv}"
+    wsm = (root / "etc/systemd/system/workspace-mcp.service").read_text(encoding="utf-8")
+    assert "--transport streamable-http" in wsm, f"workspace-mcp unit: {wsm}"
+    assert "MCP_ENABLE_OAUTH21=true" in wsm, f"workspace-mcp unit: {wsm}"
+    assert f"WORKSPACE_MCP_PORT={WORKSPACE_MCP_PORT}" in wsm, f"workspace-mcp unit: {wsm}"
+    assert "WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND=disk" in wsm, (
+        f"client registrations would not survive a restart: {wsm}"
+    )
+    assert "--read-only --tools gmail calendar" in wsm, f"workspace-mcp unit: {wsm}"
+    assert f"EnvironmentFile={home}/.config/workspace-mcp/env" in wsm, f"workspace-mcp unit: {wsm}"
+    # The URI your Google Cloud client must authorize — pinned, so docs and unit can't drift.
+    assert f"GOOGLE_OAUTH_REDIRECT_URI=http://localhost:{WORKSPACE_MCP_PORT}/oauth2callback" in wsm, (
+        f"workspace-mcp unit: {wsm}"
+    )
 
     # Claude Code (native installer) and Codex (npm, user prefix ~/.local) for the VM user
     assert (home / ".local/bin/claude").is_file(), "Claude Code not installed"
@@ -708,9 +736,9 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     assert (home / ".local/bin/workspace-mcp").is_file()
 
     # Post-run reminder: with a Google client configured, the inboxes that still need
-    # their one-time browser sign-in are named (gmail_accounts, rollout order).
-    for acct in GMAIL_ACCOUNTS:   # loaded from vars_agents_vm.yml — no test-owned copy
-        assert acct in result.stdout, f"post-run reminder missing {acct}:\n{result.stdout}"
+    # their one-time dashboard auth are named (google_workspace_accounts, rollout order).
+    for acct in GOOGLE_WORKSPACE_ACCOUNTS:   # loaded from vars_agents_vm.yml — no test-owned copy
+        assert acct["email"] in result.stdout, f"post-run reminder missing {acct['email']}:\n{result.stdout}"
 
 
 def test_vm_rerun_is_quiet(stub_state):
@@ -774,6 +802,13 @@ def test_vm_without_optional_secrets_skips_their_features(stub_state):
     )
     assert not any(l.startswith("systemctl") and "hermes-gateway" in l for l in inv), f"gateway touched: {inv}"
 
+    # workspace-mcp is gated on the Google client too (its unit, env file and enable)
+    assert not (root / "etc/systemd/system/workspace-mcp.service").exists(), (
+        f"workspace-mcp unit created without a Google client: {inv}"
+    )
+    assert not any(l.startswith("systemctl") and "workspace-mcp" in l for l in inv), f"workspace-mcp touched: {inv}"
+    assert not (home / ".config/workspace-mcp/env").exists(), "workspace-mcp env written without a client"
+
     hermes_env = (home / ".hermes/.env").read_text(encoding="utf-8")
     assert "TELEGRAM" not in hermes_env, f".env gained telegram keys: {hermes_env}"
 
@@ -793,8 +828,8 @@ def test_vm_without_optional_secrets_skips_their_features(stub_state):
         f"no notice that repo clones were skipped: {result.stdout}"
     )
 
-    assert GMAIL_ACCOUNTS[0] not in result.stdout, (
-        f"sign-in reminder shown without a Google client: {result.stdout}"
+    assert GOOGLE_WORKSPACE_ACCOUNTS[0]["email"] not in result.stdout, (
+        f"auth reminder shown without a Google client: {result.stdout}"
     )
 
 
@@ -919,6 +954,9 @@ def test_vm_rotated_dashboard_password_restarts_the_running_services(stub_state)
     assert not any(l.startswith("systemctl restart opencode-server") for l in new), (
         f"opencode-server restarted although its config did not change: {new}"
     )
+    assert not any(l.startswith("systemctl restart workspace-mcp") for l in new), (
+        f"workspace-mcp restarted although its own env did not change: {new}"
+    )
 
 
 def test_vm_changed_hermes_config_restarts_the_running_services(stub_state):
@@ -943,6 +981,41 @@ def test_vm_changed_hermes_config_restarts_the_running_services(stub_state):
     assert not any(l.startswith("systemctl restart opencode-server") for l in new), (
         f"opencode-server restarted although its config did not change: {new}"
     )
+    assert not any(l.startswith("systemctl restart workspace-mcp") for l in new), (
+        f"workspace-mcp restarted although it does not read Hermes' config: {new}"
+    )
+
+
+def test_vm_rotated_google_client_restarts_only_workspace_mcp(stub_state):
+    # Rotating the OAuth client keys changes only workspace-mcp's own env file — its unit
+    # restarts, but not the dashboard/gateway (their .env is untouched) or opencode-server.
+    secrets1 = _full_secrets(stub_state)
+    result1 = _run_vm(stub_state, secrets_path=secrets1)
+    _require_ok(result1)
+
+    baseline = len(invocations(stub_state))
+    secrets2 = _full_secrets(
+        stub_state,
+        google_oauth_client_id="rotated-client-id.apps.googleusercontent.com",
+        google_oauth_client_secret="rotated-client-secret",
+    )
+    result2 = _run_vm(stub_state, secrets_path=secrets2)
+    _require_ok(result2)
+
+    new = invocations(stub_state)[baseline:]
+    assert "systemctl restart workspace-mcp" in new, (
+        f"no workspace-mcp restart after the client rotation: {new}"
+    )
+    for svc in ("hermes-dashboard", "hermes-gateway", "opencode-server"):
+        assert not any(l.startswith(f"systemctl restart {svc}") for l in new), (
+            f"{svc} restarted although its own files did not change: {new}"
+        )
+
+    # The rotated keys reached the env file (and Hermes' config never carried them).
+    home = stub_state.parent / "vm-home"
+    wsm_env = (home / ".config/workspace-mcp/env").read_text(encoding="utf-8")
+    assert "GOOGLE_OAUTH_CLIENT_ID=rotated-client-id.apps.googleusercontent.com" in wsm_env, f".env:\n{wsm_env}"
+    assert "GOOGLE_OAUTH_CLIENT_SECRET=rotated-client-secret" in wsm_env, f".env:\n{wsm_env}"
 
 
 def test_vm_signed_in_clis_get_no_reminder(stub_state):

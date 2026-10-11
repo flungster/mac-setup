@@ -67,13 +67,16 @@
       ansible.builtin.include_role:
         name: google_workspace_mcp
 
-    # One-time human step the playbook cannot do: authorise each inbox in a browser
-    # (the first Gmail/Calendar action offers the link; tunnel it if your browser can't
-    # reach the VM). Only when a Google client is configured — otherwise no accounts.
-    - name: Remind which Gmail/Calendar accounts still need a one-time sign-in (VM)
+    # One-time human step the playbook cannot do: authenticate each account on Hermes'
+    # dashboard (MCP page → "Authenticate" per google_workspace_* entry, picking that
+    # Google account in the browser — no tunnel: both the server and the dashboard are
+    # LAN-reachable). Credentials persist; reboots never force a re-auth. Only when a
+    # Google client is configured — otherwise no accounts.
+    - name: Remind which Google accounts still need a one-time dashboard auth (VM)
       ansible.builtin.debug:
         msg: >-
-          One-time setup left for you — sign in each Google account once via the link
-          Hermes offers (an SSH tunnel to your browser if it can't reach this VM):
-          {{ gmail_accounts | join(', ') }} (rollout order; Cornell's may be admin-blocked).
-      when: ((google_oauth_client_id | default('')) != '') and (((gmail_accounts | default([])) | length) > 0)
+          One-time setup left for you — open the Hermes dashboard (MCP page) and
+          authenticate each google_workspace_* entry once, picking that account in the
+          browser: {{ (google_workspace_accounts | default([])) | map(attribute='email') | join(', ') }}
+          (rollout order; Cornell's may be admin-blocked). Authenticated accounts keep working across reboots.
+      when: ((google_oauth_client_id | default('')) != '') and (((google_workspace_accounts | default([])) | length) > 0)

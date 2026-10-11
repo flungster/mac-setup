@@ -1,6 +1,6 @@
 # Managed by mac-setup (playbooks/agents-vm.yml). Hand edits are overwritten on re-run —
-# change the playbook variables (or -e) and re-run instead. 0600: contains secrets
-# when the Google OAuth client is configured below.
+# change the playbook variables (or -e) and re-run instead. Holds no secrets: Google's
+# OAuth client keys live in the workspace-mcp unit's env file (see that role).
 
 model:
   provider: {{ hermes_default_provider }}
@@ -37,12 +37,15 @@ approvals:
 
 {% endif %}
 {%- if (google_oauth_client_id | default('') != '') and (google_oauth_client_secret | default('') != '') -%}
-mcp_servers:
-  google_workspace:
-    command: "{{ agents_vm_home }}/.local/bin/workspace-mcp"
-    args: ["--read-only", "--tools"{% for t in google_workspace_tools %}, "{{ t }}"{% endfor %}]
-    env:
-      GOOGLE_OAUTH_CLIENT_ID: "{{ google_oauth_client_id }}"
-      GOOGLE_OAUTH_CLIENT_SECRET: {{ google_oauth_client_secret | quote }}
+{%- if google_workspace_accounts | length > 0 %}mcp_servers:   # one OAuth 2.1 entry per Google account — the server is
+# workspace-mcp's LAN service (the workspace-mcp unit); authenticate each entry on the
+# dashboard's MCP page, and its tools auto-fill that account.
+{% for a in google_workspace_accounts %}  google_workspace_{{ a.name }}:   # {{ a.email }}
+    url: http://127.0.0.1:{{ workspace_mcp_port }}/mcp
+    auth: oauth
 
+{% endfor %}{% else -%}# No Google accounts listed (google_workspace_accounts is empty) — add entries to
+# playbooks/vars_agents_vm.yml and re-run.
+
+{% endif %}
 {% endif -%}

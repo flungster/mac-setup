@@ -1,0 +1,23 @@
+[Unit]
+Description=Google Workspace MCP server (agents VM) — OAuth 2.1 multi-user, LAN via this Mac's IP
+After=network-online.target
+
+[Service]
+User={{ agents_vm_user }}
+# GOOGLE_OAUTH_CLIENT_ID/SECRET live here (0600, per-key managed) — the server performs
+# the Google code exchange itself in OAuth 2.1 mode and needs both to start.
+EnvironmentFile={{ agents_vm_home }}/.config/workspace-mcp/env
+# MCP_ENABLE_OAUTH21: multi-user bearer mode (per-account Google creds, disk-backed
+# client registrations so restarts never force re-auth). OAUTHLIB_INSECURE_TRANSPORT:
+# the consent callback is plain HTTP (LAN only). Host 0.0.0.0: OrbStack exposes it to
+# the LAN and this Mac's localhost — the browser consent + dashboard callback need that.
+Environment=MCP_ENABLE_OAUTH21=true WORKSPACE_MCP_HOST=0.0.0.0 WORKSPACE_MCP_PORT={{ workspace_mcp_port }} OAUTHLIB_INSECURE_TRANSPORT=1 WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND=disk GOOGLE_OAUTH_REDIRECT_URI=http://localhost:{{ workspace_mcp_port }}/oauth2callback
+# The redirect URI above is what your Google Cloud OAuth client must authorize (this Mac's
+# browser reaches it through OrbStack's port forwarding to the VM).
+{% set tools_args = '--read-only --tools ' ~ google_workspace_tools | join(' ') if (google_workspace_tools | length > 0) else '' %}
+ExecStart={{ agents_vm_home }}/.local/bin/workspace-mcp --transport streamable-http {{ tools_args }}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

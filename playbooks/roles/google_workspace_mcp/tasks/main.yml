@@ -1,9 +1,11 @@
 ---
-# workspace-mcp (taylorwilsdon/google_workspace_mcp) as a uv tool in the VM. Hermes
-# launches it per session via its mcp_servers entry (written by hermes_agent's config);
-# no service of its own — stdio mode keeps it on Hermes' side, not the network.
+# workspace-mcp (taylorwilsdon/google_workspace_mcp) in the VM: a uv tool, run as its own
+# systemd service (workspace-mcp) in OAuth 2.1 multi-user mode — one Google account per
+# Hermes MCP entry (hermes_agent's config writes them; the dashboard authenticates each).
 # Read-only for now (--read-only is enforced by the server's tool selection, not
-# instructions); enabling sending later = drop --read-only and re-consent in Google.
+# instructions); enabling sending later = drop --read-only and re-consent in Google. The
+# OAuth client keys are managed per key in a 0600 env file; the unit restarts when they
+# rotate (a running server only reads it at start).
 
 - name: Install workspace-mcp as a uv tool (VM)
   ansible.builtin.shell: "{{ agents_vm_home }}/.local/bin/uv tool install workspace-mcp"
@@ -11,3 +13,39 @@
     creates: "{{ agents_vm_home }}/.local/bin/workspace-mcp"
   environment:
     HOME: "{{ agents_vm_home }}"
+
+# --- OAuth client keys + service (only when a Google client is configured) ---------------------
+- name: Ensure the workspace-mcp env dir exists (VM)
+  ansible.builtin.file:
+    path: "{{ agents_vm_home }}/.config/workspace-mcp"
+    state: directory
+    mode: "0700"
+  when: ((google_oauth_client_id | default('')) != '') and ((google_oauth_client_secret | default('')) != '')
+
+- name: Manage the workspace-mcp OAuth client keys (VM)
+  ansible.builtin.lineinfile:
+    path: "{{ agents_vm_home }}/.config/workspace-mcp/env"
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    create: yes
+    mode: "0600"
+  loop: "{{ {'GOOGLE_OAUTH_CLIENT_ID': (google_oauth_client_id | string),
+             'GOOGLE_OAUTH_CLIENT_SECRET': (google_oauth_client_secret | string)} | dict2items }}"
+  # Print only the key names; the values are secrets. The registered result feeds
+  # restart_when_changed below (true when either managed key actually changed this run).
+  register: workspace_mcp_env
+  loop_control:
+    label: "{{ item.key }}"
+  when: ((google_oauth_client_id | default('')) != '') and ((google_oauth_client_secret | default('')) != '')
+
+- name: Install and manage the workspace-mcp unit (OAuth 2.1 multi-user, LAN-reachable)
+  ansible.builtin.include_role:
+    name: systemd_unit
+  vars:
+    unit_name: workspace-mcp
+    # Restart a running server when its OAuth client keys changed this run (rotated, …).
+    restart_when_changed: "{{ workspace_mcp_env.changed | bool }}"
+    # Rendered from THIS role's templates dir (lookups resolve against the including
+    # role); systemd_unit writes it with copy.
+    unit_content: "{{ lookup('template', 'workspace-mcp.service.j2') }}"
+  when: ((google_oauth_client_id | default('')) != '') and ((google_oauth_client_secret | default('')) != '')
