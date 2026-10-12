@@ -46,6 +46,8 @@ WORKSPACE_MCP_BASE_URI = _vars_agents_vm()["workspace_mcp_base_uri"]
 # Per-service permission levels the unit passes as --permissions <service>:<level> (gmail drafts =
 # draft box + labels/archive, no send). Loaded from vars — the unit must match them exactly.
 GOOGLE_WORKSPACE_PERMISSIONS = _vars_agents_vm()["google_workspace_permissions"]
+# OpenCode's default model (opencode.json "model"); loaded from vars — no test-owned copy.
+OPENCODE_DEFAULT_MODEL = _vars_agents_vm()["opencode_default_model"]
 
 
 def _write_secrets(stub_state, **overrides):
@@ -636,7 +638,7 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     assert oc_path.stat().st_mode & 0o777 == 0o600, "opencode.json holds keys but is not 0600"
     oc = json.loads((home / ".config/opencode/opencode.json").read_text(encoding="utf-8"))
     assert oc["server"] == {"hostname": "127.0.0.1", "port": 4096}, f"server: {oc['server']}"
-    assert oc["model"] == "anthropic/claude-sonnet-4-5", f"default model: {oc['model']}"
+    assert oc["model"] == OPENCODE_DEFAULT_MODEL, f"default model: {oc['model']}"
     assert oc["provider"]["anthropic"]["options"]["apiKey"] == "sk-ant-stub"
     omlx = oc["provider"]["omlx"]
     assert set(omlx["models"]) == {"qwen3-coder-480b", "gpt-oss-120b"}, f"omlx models: {omlx}"
@@ -810,7 +812,8 @@ def test_vm_without_optional_secrets_skips_their_features(stub_state):
 
     result = _run_vm(
         stub_state, secrets_path=secrets,
-        extra_vars=('{"local_llm_models": []}', "hermes_default_provider=anthropic"),
+        extra_vars=('{"local_llm_models": []}', "hermes_default_provider=anthropic",
+                   "opencode_default_model=anthropic/claude-sonnet-4-5"),
     )
     _require_ok(result)
 
