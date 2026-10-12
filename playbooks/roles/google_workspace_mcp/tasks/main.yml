@@ -2,10 +2,10 @@
 # workspace-mcp (taylorwilsdon/google_workspace_mcp) in the VM: a uv tool, run as its own
 # systemd service (workspace-mcp) in OAuth 2.1 multi-user mode — one Google account per
 # Hermes MCP entry (hermes_agent's config writes them; the dashboard authenticates each).
-# Read-only for now (--read-only is enforced by the server's tool selection, not
-# instructions); enabling sending later = drop --read-only and re-consent in Google. The
-# OAuth client keys are managed per key in a 0600 env file; the unit restarts when they
-# rotate (a running server only reads it at start).
+# Access is per-service permission levels (google_workspace_permissions — gmail:drafts =
+# draft box + labels/archive, no send); raising a level means each account re-consents in
+# Google. The OAuth client keys are managed per key in a 0600 env file; the unit restarts
+# when they rotate (a running server only reads it at start).
 
 - name: Install workspace-mcp as a uv tool (VM)
   ansible.builtin.shell: "{{ agents_vm_home }}/.local/bin/uv tool install workspace-mcp"

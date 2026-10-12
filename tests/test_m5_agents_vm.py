@@ -4,7 +4,7 @@ The playbook has two halves (both imported by playbooks/agents-vm.yml): the Mac
 side (OrbStack ceilings + creating the isolated machine, agents-vm-mac.yml) and
 the Linux side inside it (agents-vm-linux.yml: base packages + GitHub access, the
 OpenCode server, Matt Pocock skills, Hermes Agent with dashboard/Telegram, and
-read-only Gmail/Calendar via workspace-mcp). This file tests both offline: the Mac
+Gmail/Calendar via workspace-mcp, per-service permission levels). This file tests both offline: the Mac
 half end-to-end against the `orb` stub, and the Linux half mapped back onto
 localhost with every path pointed at tmp dirs (agents_vm_home/root/workspace) and
 all CLI calls stubbed.
@@ -43,6 +43,9 @@ GOOGLE_WORKSPACE_ACCOUNTS = _vars_agents_vm()["google_workspace_accounts"]
 WORKSPACE_MCP_PORT = int(_vars_agents_vm()["workspace_mcp_port"])
 # The canonical URL of the MCP server in its OAuth metadata — must equal the url Hermes dials.
 WORKSPACE_MCP_BASE_URI = _vars_agents_vm()["workspace_mcp_base_uri"]
+# Per-service permission levels the unit passes as --permissions <service>:<level> (gmail drafts =
+# draft box + labels/archive, no send). Loaded from vars — the unit must match them exactly.
+GOOGLE_WORKSPACE_PERMISSIONS = _vars_agents_vm()["google_workspace_permissions"]
 
 
 def _write_secrets(stub_state, **overrides):
@@ -718,7 +721,12 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     assert "WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND=disk" in wsm, (
         f"client registrations would not survive a restart: {wsm}"
     )
-    assert "--read-only --tools gmail calendar" in wsm, f"workspace-mcp unit: {wsm}"
+    # Per-service permission levels (not the old --read-only/--tools pair): rendered into one
+    # ExecStart, so assert every configured service:level made it through, in any order.
+    for svc, lvl in GOOGLE_WORKSPACE_PERMISSIONS.items():
+        assert f"{svc}:{lvl}" in wsm, (
+            f"workspace-mcp unit missing permission for {svc} ({lvl}): {wsm}"
+        )
     assert f"EnvironmentFile={home}/.config/workspace-mcp/env" in wsm, f"workspace-mcp unit: {wsm}"
     # The URI your Google Cloud client must authorize — pinned, so docs and unit can't drift.
     assert f"GOOGLE_OAUTH_REDIRECT_URI=http://localhost:{WORKSPACE_MCP_PORT}/oauth2callback" in wsm, (

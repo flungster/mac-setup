@@ -16,8 +16,10 @@ EnvironmentFile={{ agents_vm_home }}/.config/workspace-mcp/env
 # The redirect URI stays http://localhost:… because that exact string is registered on the
 # Google Cloud OAuth client (reached from this Mac's browser via OrbStack port forwarding).
 Environment=MCP_ENABLE_OAUTH21=true WORKSPACE_MCP_HOST=0.0.0.0 WORKSPACE_MCP_PORT={{ workspace_mcp_port }} OAUTHLIB_INSECURE_TRANSPORT=1 WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND=disk GOOGLE_OAUTH_REDIRECT_URI=http://localhost:{{ workspace_mcp_port }}/oauth2callback WORKSPACE_MCP_BASE_URI={{ workspace_mcp_base_uri }}
-{% set tools_args = '--read-only --tools ' ~ google_workspace_tools | join(' ') if (google_workspace_tools | length > 0) else '' %}
-ExecStart={{ agents_vm_home }}/.local/bin/workspace-mcp --transport streamable-http {{ tools_args }}
+# Per-service permission levels (google_workspace_permissions): --permissions <service>:<level>,
+# e.g. gmail:drafts = draft box + labels/archive but no send; --read-only/--tools are mutually
+# exclusive with it, so the level list is the whole access story.
+ExecStart={{ agents_vm_home }}/.local/bin/workspace-mcp --transport streamable-http{% if google_workspace_permissions | length > 0 %} --permissions{% for svc in google_workspace_permissions %} {{ svc }}:{{ google_workspace_permissions[svc] }}{% endfor %}{% endif %}
 Restart=always
 RestartSec=10
 

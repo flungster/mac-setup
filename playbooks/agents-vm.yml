@@ -11,8 +11,8 @@
 #
 # Two halves, in order: the Mac side (OrbStack ceilings + creating the machine),
 # then the Linux side inside it — base packages and GitHub access, OpenCode server,
-# Matt Pocock skills, Hermes Agent (dashboard + Telegram gateway) and read-only
-# Gmail/Calendar via workspace-mcp.
+# Matt Pocock skills, Hermes Agent (dashboard + Telegram gateway) and Gmail/Calendar
+# access via workspace-mcp (draft-level mail, full Calendar).
 
 # Sibling-relative on purpose: Ansible resolves import_playbook paths against THIS
 # file's directory (not the caller's CWD), so `playbooks/...` would double up into

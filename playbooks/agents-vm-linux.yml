@@ -63,7 +63,7 @@
       ansible.builtin.include_role:
         name: hermes_agent
 
-    - name: Google Workspace MCP (read-only Gmail + Calendar) for Hermes
+    - name: Google Workspace MCP (draft-level Gmail, full Calendar) for Hermes
       ansible.builtin.include_role:
         name: google_workspace_mcp
 

@@ -69,7 +69,13 @@ gh_version: "2.63.2"           # pinned; bump when convenient (old releases stay
 gh_deb_url: "https://github.com/cli/cli/releases/download/v{{ gh_version }}/gh_{{ gh_version }}_linux_arm64.deb"
 
 # --- Google Workspace MCP -----------------------------------------------------------------------
-google_workspace_tools: [gmail, calendar]  # read-only for now; sending = drop --read-only + re-consent
+# Per-service permission levels for workspace-mcp (passed as --permissions <service>:<level> …).
+# Levels are cumulative per service — Gmail: readonly ⊂ organize (labels/archive) ⊂ drafts
+# (compose, you still send in Gmail) ⊂ send ⊂ full; other services: readonly/full. Raising a
+# level makes each account re-consent for the wider scopes (dashboard's MCP page — stored tokens
+# that lack them are rejected, so the re-auth is required, not optional). Read-only was
+# { gmail: readonly, calendar: readonly }; sending mail = bump gmail to send (or full).
+google_workspace_permissions: { gmail: drafts, calendar: full }
 # The inboxes workspace-mcp covers — one OAuth 2.1 MCP server entry per account: Hermes
 # authenticates each on the dashboard's MCP page (picking that Google account), and each
 # entry's tools auto-fill its own user_google_email. Rollout order: validate the setup on

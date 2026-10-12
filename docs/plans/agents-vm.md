@@ -9,7 +9,7 @@ One isolated Linux VM on the Mac Studio (M1 Max, 32 GB, static LAN IP) runs **He
 - from any LAN device via its web dashboard, and
 - from anywhere via Telegram,
 
-and can reach the LAN (Home Assistant, the oMLX server), read three Gmail inboxes and their calendars (read-only), and drive OpenCode against personal GitHub repos.
+and can reach the LAN (Home Assistant, the oMLX server), draft and manage three Gmail inboxes with full Calendar access (no sending — the levels are `google_workspace_permissions`), and drive OpenCode against personal GitHub repos.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Mac Studio M1 Max (32 GB, static IP)
 │       ├── opencode-server.service       127.0.0.1:4096   (cwd /workspace)
 │       ├── hermes-dashboard.service      0.0.0.0:9119     (basic-auth gate)
 │       ├── hermes-gateway.service        Telegram long polling (outbound only)
-│       └── google-workspace-mcp.service  127.0.0.1        (--read-only, gmail+calendar)
+│       └── google-workspace-mcp.service 127.0.0.1        (--permissions levels, gmail+calendar)
 │
 ├── LAN devices  → http://<mac-ip>:9119        Hermes dashboard
 ├── macOS        → ssh <macOS user>@agents (127.0.0.1:32222)  OrbStack's SSH server
@@ -44,7 +44,7 @@ Mac Studio M1 Max (32 GB, static IP)
 | Remote access | Telegram gateway (`hermes gateway`), `TELEGRAM_ALLOWED_USERS` = owner only | Outbound polling; no inbound ports |
 | Hermes → OpenCode | Hermes skill wrapping `opencode run --server http://127.0.0.1:4096 …` | `opencode serve` (v2) is an HTTP API, not MCP; `--workspace` flag doesn't exist — cwd is used |
 | Model providers | Anthropic API key + oMLX at `http://llm.internal:8000/v1` (OpenAI-compatible) for both OpenCode (`opencode.json`, `@ai-sdk/openai-compatible`) and Hermes (`config.yaml` custom endpoint) | |
-| Gmail + Calendar | `taylorwilsdon/google_workspace_mcp` as its own LAN service (OAuth 2.1 multi-user, port `workspace_mcp_port`); one OAuth-protected `mcp_servers` entry per account in Hermes | Read-only enforced by tool selection (`--read-only --tools gmail calendar`); one browser consent per account (dashboard's MCP page), creds stored on disk — reboots never force a re-auth |
+| Gmail + Calendar | `taylorwilsdon/google_workspace_mcp` as its own LAN service (OAuth 2.1 multi-user, port `workspace_mcp_port`); one OAuth-protected `mcp_servers` entry per account in Hermes | Per-service levels from `google_workspace_permissions`, rendered as one `--permissions <service>:<level>` list (gmail=drafts = draft box + labels/archive but no send; calendar=full); one browser consent per account (dashboard's MCP page) — raising a level needs each stored token re-consented, but restarts never do |
 | Google Cloud | One project + one Desktop OAuth client (owned by any account), user type External, published to Production unverified | Covers all inboxes; avoids 7-day refresh-token expiry of Testing mode |
 | Approvals | Hermes approval mode stays on (smart/manual) | Inbox content is untrusted (prompt injection) |
 | Matt Pocock skills | Installed in the VM for OpenCode via a shared `matt_skills` role (refactored out of `site.yml`) | One implementation for Mac and VM |
@@ -57,7 +57,7 @@ Mac Studio M1 Max (32 GB, static IP)
 
 | Account | Type | Notes |
 |---|---|---|
-| `felix.lung@gmail.com` | Personal Gmail | Most sensitive inbox. Read-only scopes; consider excluding from scheduled/automated summaries initially |
+| `felix.lung@gmail.com` | Personal Gmail | Most sensitive inbox. Draft-level access (no send); consider excluding from scheduled/automated summaries initially |
 | `flungster@gmail.com` | Personal Gmail | High promo/order volume — good first account to validate setup and prompt-injection handling |
 | `fl10@cornell.edu` | **Google Workspace for Education (Cornell-managed)** | Not a personal account: Cornell IT controls third-party app access. Admin policy may block an unverified OAuth app or restricted Gmail scopes (`gmail.readonly`). Check Cornell's acceptable-use / data policy before sending university mail to Anthropic. Treat as best-effort; plan works without it |
 
@@ -77,10 +77,10 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 - `opencode_server` (VM): official installer; `opencode.json` (Anthropic + oMLX provider); `/etc/opencode/env` (0600); `opencode-server.service` (`--hostname 127.0.0.1 --port 4096`, `WorkingDirectory=/workspace`, `Restart=on-failure`, enabled).
 - `matt_skills` (VM, as service user): shared role, no extra agent targets (OpenCode reads `~/.agents/skills`).
 - `hermes_agent` (VM): official installer (non-interactive); `~/.hermes/.env` (0600: `ANTHROPIC_API_KEY`, dashboard basic-auth vars, Telegram vars); `config.yaml` (models, approvals, `mcp_servers`); OpenCode bridge skill; `hermes-dashboard.service`, `hermes-gateway.service`.
-- `google_workspace_mcp` (VM): install via `uv tool`; OAuth client keys per-key in a 0600 env file (from Vault); `workspace-mcp.service` on port `workspace_mcp_port`, OAuth 2.1 multi-user, LAN-reachable (`--read-only --tools gmail calendar`); `hermes_agent` writes one OAuth-protected `mcp_servers` entry per account.
+- `google_workspace_mcp` (VM): install via `uv tool`; OAuth client keys per-key in a 0600 env file (from Vault); `workspace-mcp.service` on port `workspace_mcp_port`, OAuth 2.1 multi-user, LAN-reachable (`--permissions` levels from `google_workspace_permissions`: gmail=drafts, calendar=full); `hermes_agent` writes one OAuth-protected `mcp_servers` entry per account.
 
 ### Vars and secrets
-- `group_vars` / play vars: `agents_vm_name: agents`, `agents_vm_memory_mib: 12288`, `agents_vm_cpu: 6`, `agents_vm_workspace_host_path: "{{ ansible_env.HOME }}/agent_workspaces"`, `opencode_port: 4096`, `hermes_dashboard_port: 9119`, `local_llm_base_url: http://llm.internal:8000/v1`, `local_llm_models: [...]`, `git_user_name`, `git_user_email`, `agent_repos`, `google_workspace_accounts` (name + email per account), `workspace_mcp_port`.
+- `group_vars` / play vars: `agents_vm_name: agents`, `agents_vm_memory_mib: 12288`, `agents_vm_cpu: 6`, `agents_vm_workspace_host_path: "{{ ansible_env.HOME }}/agent_workspaces"`, `opencode_port: 4096`, `hermes_dashboard_port: 9119`, `local_llm_base_url: http://llm.internal:8000/v1`, `local_llm_models: [...]`, `git_user_name`, `git_user_email`, `agent_repos`, `google_workspace_accounts` (name + email per account), `google_workspace_permissions`, `workspace_mcp_port`.
 - Vault file (+ committed `.example`): `anthropic_api_key`, `hermes_dashboard_username`, `hermes_dashboard_password_hash`, `hermes_dashboard_secret`, `telegram_bot_token`, `telegram_allowed_users`, `google_oauth_client_id`, `google_oauth_client_secret`, `github_token`; later `home_assistant_token`.
 
 ### Docs and tests
@@ -106,7 +106,7 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 - Telegram: owner gets replies; other users are ignored.
 - Hermes → OpenCode task edits a file in `/workspace/<repo>`, visible in `~/agent_workspaces/<repo>` on the Mac.
 - Both providers answer; `curl http://llm.internal:8000/v1/models` succeeds inside the VM.
-- Each Gmail account: list unread + upcoming events; a send attempt is refused (read-only).
+- Each Gmail account: list unread + upcoming events; drafting and label/archive operations work, but sending is refused (the gmail level stops at drafts).
 - VM reaches Home Assistant and `llm.internal`; cannot read Mac paths outside `/workspace`; cannot reach the Mac host.
 - `gh auth status` OK; `git ls-remote` works for both repos (push test opt-in, not in default `make verify`).
 - Matt skills present in VM; OpenCode lists them.
@@ -122,13 +122,13 @@ Rollout order: `flungster` → `felix.lung` → `fl10@cornell.edu`.
 6. Hermes + dashboard (auth) + providers. *(needs 3)*
 7. Hermes → OpenCode bridge skill. *(needs 5, 6)*
 8. Telegram gateway. *(needs 6)*
-9. Google Workspace MCP, read-only, three accounts. *(needs 6)*
+9. Google Workspace MCP (per-service permission levels), three accounts. *(needs 6)*
 10. Docs/ADR/CONTEXT/verify — alongside each step.
 
 ## Deferred
 
 - Home Assistant MCP integration.
-- Gmail send (drop `--read-only`, re-consent).
+- Gmail send (raise the gmail level in `google_workspace_permissions`; each account re-consents).
 - UniFi DNS name for the Mac IP; remote dashboard via Tailscale or UniFi VPN.
 
 ## Open items
