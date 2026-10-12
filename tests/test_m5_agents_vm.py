@@ -43,8 +43,8 @@ GOOGLE_WORKSPACE_ACCOUNTS = _vars_agents_vm()["google_workspace_accounts"]
 WORKSPACE_MCP_PORT = int(_vars_agents_vm()["workspace_mcp_port"])
 # The canonical URL of the MCP server in its OAuth metadata — must equal the url Hermes dials.
 WORKSPACE_MCP_BASE_URI = _vars_agents_vm()["workspace_mcp_base_uri"]
-# Per-service permission levels the unit passes as --permissions <service>:<level> (gmail drafts =
-# draft box + labels/archive, no send). Loaded from vars — the unit must match them exactly.
+# The --permissions <service>:<level> pairs the unit passes (gmail:drafts = draft box +
+# labels/archive, no send; calendar:full). Loaded from vars — the unit must carry all of them.
 GOOGLE_WORKSPACE_PERMISSIONS = _vars_agents_vm()["google_workspace_permissions"]
 # OpenCode's default model (opencode.json "model"); loaded from vars — no test-owned copy.
 OPENCODE_DEFAULT_MODEL = _vars_agents_vm()["opencode_default_model"]
@@ -723,12 +723,15 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     assert "WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND=disk" in wsm, (
         f"client registrations would not survive a restart: {wsm}"
     )
-    # Per-service permission levels (not the old --read-only/--tools pair): rendered into one
-    # ExecStart, so assert every configured service:level made it through, in any order.
-    for svc, lvl in GOOGLE_WORKSPACE_PERMISSIONS.items():
-        assert f"{svc}:{lvl}" in wsm, (
-            f"workspace-mcp unit missing permission for {svc} ({lvl}): {wsm}"
-        )
+    # The --permissions pairs from vars (not the old --read-only/--tools): rendered into one
+    # ExecStart in var order, so assert the exact flag run made it through.
+    expected_flags = " --permissions " + " ".join(GOOGLE_WORKSPACE_PERMISSIONS)
+    assert f"{expected_flags}\n" in wsm, (
+        f"workspace-mcp unit --permissions wrong: {wsm}"
+    )
+    # A Jinja block tag at the end of a line eats its newline (trim_blocks) — catch any
+    # future ExecStart/Restart glue ("calendar:fullRestart=always" took the service down).
+    assert "\nRestart=always" in wsm, f"unit lines glued together: {wsm}"
     assert f"EnvironmentFile={home}/.config/workspace-mcp/env" in wsm, f"workspace-mcp unit: {wsm}"
     # The URI your Google Cloud client must authorize — pinned, so docs and unit can't drift.
     assert f"GOOGLE_OAUTH_REDIRECT_URI=http://localhost:{WORKSPACE_MCP_PORT}/oauth2callback" in wsm, (

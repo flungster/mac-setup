@@ -19,7 +19,7 @@ Environment=MCP_ENABLE_OAUTH21=true WORKSPACE_MCP_HOST=0.0.0.0 WORKSPACE_MCP_POR
 # Per-service permission levels (google_workspace_permissions): --permissions <service>:<level>,
 # e.g. gmail:drafts = draft box + labels/archive but no send; --read-only/--tools are mutually
 # exclusive with it, so the level list is the whole access story.
-ExecStart={{ agents_vm_home }}/.local/bin/workspace-mcp --transport streamable-http{% if google_workspace_permissions | length > 0 %} --permissions{% for svc in google_workspace_permissions %} {{ svc }}:{{ google_workspace_permissions[svc] }}{% endfor %}{% endif %}
+ExecStart={{ agents_vm_home }}/.local/bin/workspace-mcp --transport streamable-http{{ (' --permissions ' ~ google_workspace_permissions | join(' ') if (google_workspace_permissions | length > 0) else '') }}
 Restart=always
 RestartSec=10
 
