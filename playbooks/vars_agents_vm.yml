@@ -53,6 +53,13 @@ hermes_dashboard_port: 9119    # Hermes' default; LAN-reachable via the Mac's IP
 hermes_dashboard_username: admin
 workspace_mcp_port: 9120       # Google Workspace MCP (OAuth 2.1, HTTP); LAN-reachable —
                                # the dashboard's OAuth callback and the browser consent need it
+# The server's canonical URL in its OAuth metadata (resource indicator): must match EXACTLY the
+# mcp_servers url Hermes dials — a mismatch (localhost vs 127.0.0.1) aborts the auth flow with
+# "resource not expected". 127.0.0.1, like localhost, is reachable from this Mac's browser
+# through OrbStack port forwarding for the consent screen. (The Google redirect URI in the unit
+# stays http://localhost:… — that string is registered on your Google Cloud client and must not
+# drift from it.)
+workspace_mcp_base_uri: http://127.0.0.1
 
 # --- GitHub -----------------------------------------------------------------------------------
 git_user_name: "Felix Lung"

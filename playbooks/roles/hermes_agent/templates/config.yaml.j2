@@ -41,7 +41,7 @@ approvals:
 # workspace-mcp's LAN service (the workspace-mcp unit); authenticate each entry on the
 # dashboard's MCP page, and its tools auto-fill that account.
 {% for a in google_workspace_accounts %}  google_workspace_{{ a.name }}:   # {{ a.email }}
-    url: http://127.0.0.1:{{ workspace_mcp_port }}/mcp
+    url: {{ workspace_mcp_base_uri }}:{{ workspace_mcp_port }}/mcp   # must match the unit's WORKSPACE_MCP_BASE_URI
     auth: oauth
 
 {% endfor %}{% else -%}# No Google accounts listed (google_workspace_accounts is empty) — add entries to

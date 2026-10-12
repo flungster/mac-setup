@@ -41,6 +41,8 @@ def _vars_agents_vm():
 # dashboard); loaded from vars_agents_vm.yml — no test-owned copy.
 GOOGLE_WORKSPACE_ACCOUNTS = _vars_agents_vm()["google_workspace_accounts"]
 WORKSPACE_MCP_PORT = int(_vars_agents_vm()["workspace_mcp_port"])
+# The canonical URL of the MCP server in its OAuth metadata — must equal the url Hermes dials.
+WORKSPACE_MCP_BASE_URI = _vars_agents_vm()["workspace_mcp_base_uri"]
 
 
 def _write_secrets(stub_state, **overrides):
@@ -682,7 +684,9 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     )
     for acct in GOOGLE_WORKSPACE_ACCOUNTS:
         entry = cfg["mcp_servers"][f"google_workspace_{acct['name']}"]
-        assert entry == {"url": f"http://127.0.0.1:{WORKSPACE_MCP_PORT}/mcp", "auth": "oauth"}, (
+        # url must match the unit's WORKSPACE_MCP_BASE_URI — a mismatch aborts Hermes' OAuth
+        # flow with a resource-indicator error (localhost vs 127.0.0.1).
+        assert entry == {"url": f"{WORKSPACE_MCP_BASE_URI}:{WORKSPACE_MCP_PORT}/mcp", "auth": "oauth"}, (
             f"{acct['name']}: {entry}"
         )
 
@@ -707,6 +711,10 @@ def test_vm_fresh_full_run_provisions_everything(stub_state):
     assert "--transport streamable-http" in wsm, f"workspace-mcp unit: {wsm}"
     assert "MCP_ENABLE_OAUTH21=true" in wsm, f"workspace-mcp unit: {wsm}"
     assert f"WORKSPACE_MCP_PORT={WORKSPACE_MCP_PORT}" in wsm, f"workspace-mcp unit: {wsm}"
+    # The canonical URL in OAuth metadata — must equal the mcp_servers url Hermes dials.
+    assert f"WORKSPACE_MCP_BASE_URI={WORKSPACE_MCP_BASE_URI}" in wsm, (
+        f"workspace-mcp unit: {wsm}"
+    )
     assert "WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND=disk" in wsm, (
         f"client registrations would not survive a restart: {wsm}"
     )
