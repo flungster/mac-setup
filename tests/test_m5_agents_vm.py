@@ -805,6 +805,25 @@ def test_vm_rerun_is_quiet(stub_state):
     assert secret_before == secret_after, f"signing secret rotated on re-run: {secret_before!r} -> {secret_after!r}"
 
 
+def test_vm_soul_keeps_hermes_away_from_mcp_tokens(stub_state):
+    # A Hermes-written script once refreshed the workspace-mcp token itself and saved the new
+    # access token with the old (rotated-away) refresh token — dead login, forced re-auth. The
+    # SOUL.md rule keeps it on the MCP tools; Hermes' own persona text there must survive.
+    secrets = _full_secrets(stub_state)
+    soul = stub_state.parent / "vm-home/.hermes/SOUL.md"
+    soul.parent.mkdir(parents=True, exist_ok=True)
+    soul.write_text("You are Hermes Agent, built by Nous Research.\n", encoding="utf-8")
+    extra = ('{"local_llm_models": ["qwen3-coder-480b"]}', "hermes_default_model=qwen3-coder-480b")
+
+    for _ in range(2):  # the second run must not stack a second copy of the rule
+        _require_ok(_run_vm(stub_state, secrets_path=secrets, extra_vars=extra))
+
+    body = soul.read_text(encoding="utf-8")
+    assert body.startswith("You are Hermes Agent, built by Nous Research."), f"persona lost: {body}"
+    assert body.count("BEGIN mac-setup: MCP credential rule") == 1, f"rule block: {body}"
+    assert "~/.hermes/mcp-tokens/" in body, f"rule text: {body}"
+
+
 def test_vm_without_optional_secrets_skips_their_features(stub_state):
     import json
 

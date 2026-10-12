@@ -85,6 +85,25 @@
     dest: "{{ hermes_home }}/skills/opencode-bridge/SKILL.md"
     mode: "0644"
 
+# --- SOUL.md credential rule ------------------------------------------------------------------
+# SOUL.md is in every Hermes session's context. A Hermes-written script once refreshed a
+# workspace-mcp token itself and kept the old, rotated-away refresh token — a dead login and
+# a forced browser re-auth. Only this marked block is managed; Hermes' own persona text stays.
+# An instruction, not a wall: Hermes' scripts run as the user that owns mcp-tokens/.
+- name: Keep Hermes on its MCP tools, away from the stored OAuth tokens (SOUL.md rule)
+  ansible.builtin.blockinfile:
+    path: "{{ hermes_home }}/SOUL.md"
+    marker: "<!-- {mark} mac-setup: MCP credential rule -->"
+    create: yes
+    mode: "0644"
+    block: |
+      Reach Gmail, Calendar and every other MCP server only through your MCP tools. Never read,
+      copy or write anything under ~/.hermes/mcp-tokens/, and never call an MCP server's /token
+      or /mcp endpoint from your own scripts: the server rotates refresh tokens, and a script
+      refresh breaks the stored login and forces a browser re-authentication. If an MCP tool
+      reports an auth error, stop and tell the user to re-authenticate that server from the
+      dashboard.
+
 # --- dashboard service (root; shared unit lifecycle in the systemd_unit role) --------------------
 - name: Install and manage the hermes-dashboard unit (LAN-reachable, behind basic auth)
   ansible.builtin.include_role:
